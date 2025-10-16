@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cybersentinel
+  labels:
+    name: cybersentinel
+    app.kubernetes.io/name: cybersentinel
+    app.kubernetes.io/instance: cybersentinel
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: helm
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cybersentinel-system
+  labels:
+    name: cybersentinel-system
+    app.kubernetes.io/name: cybersentinel-system
+    app.kubernetes.io/instance: cybersentinel-system
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: helm
+---
+# Service Account for External Secrets
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-secrets-sa
+  namespace: cybersentinel
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cybersentinel-ENV-pod-secrets-role"
+---
+# Service Account for main application
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cybersentinel-api
+  namespace: cybersentinel
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cybersentinel-ENV-pod-secrets-role"
+---
+# RBAC for service accounts
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cybersentinel-api
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cybersentinel-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cybersentinel-api
+subjects:
+- kind: ServiceAccount
+  name: cybersentinel-api
+  namespace: cybersentinel

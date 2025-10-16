@@ -1,0 +1,73 @@
+id: enable_account_lockout
+name: Enable Account Lockout Protection
+description: Configure account lockout policies to prevent brute force attacks
+risk_tier: low
+category: preventive
+target_types:
+  - host
+  - user
+  - domain_controller
+
+estimated_duration: 10  # minutes
+reversible: true
+requires_approval: false
+
+variables:
+  lockout_threshold:
+    type: int
+    default: 5
+    description: "Number of failed attempts before lockout"
+  lockout_duration:
+    type: int
+    default: 30
+    description: "Lockout duration in minutes"
+  reset_counter_after:
+    type: int
+    default: 15
+    description: "Reset attempt counter after X minutes"
+
+steps:
+  - name: verify_domain_controller
+    action: shell
+    command: "echo Verifying domain controller access for {{target_host}}"
+    timeout: 30
+    on_failure: abort
+
+  - name: backup_current_policy
+    action: shell
+    command: "echo Backing up current account lockout policy"
+    timeout: 60
+
+  - name: configure_lockout_threshold
+    action: shell
+    command: "echo Setting account lockout threshold to {{lockout_threshold}} attempts"
+    timeout: 30
+
+  - name: configure_lockout_duration
+    action: shell
+    command: "echo Setting lockout duration to {{lockout_duration}} minutes"
+    timeout: 30
+
+  - name: configure_reset_counter
+    action: shell
+    command: "echo Setting reset counter to {{reset_counter_after}} minutes"
+    timeout: 30
+
+  - name: apply_policy
+    action: shell
+    command: "echo Applying account lockout policy to domain"
+    timeout: 120
+
+  - name: verify_policy
+    action: shell
+    command: "echo Verifying policy application was successful"
+    timeout: 30
+
+verify:
+  - name: check_policy_active
+    command: "echo Checking if account lockout policy is active"
+    expected_output: "policy active"
+
+revert:
+  - name: restore_policy
+    command: "echo Restoring original account lockout policy"

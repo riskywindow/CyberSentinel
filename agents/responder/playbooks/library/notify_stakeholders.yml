@@ -1,0 +1,72 @@
+id: notify_stakeholders
+name: Notify Security Stakeholders
+description: Send incident notifications to relevant stakeholders and teams
+risk_tier: low
+category: communication
+target_types:
+  - notification_system
+  - stakeholders
+
+estimated_duration: 3  # minutes
+reversible: false
+requires_approval: false
+
+variables:
+  incident_severity:
+    type: string
+    required: true
+    description: "Incident severity: low, medium, high, critical"
+  notification_channels:
+    type: list
+    default: ["email", "slack", "pagerduty"]
+    description: "Notification channels to use"
+  escalation_level:
+    type: string
+    default: "standard"
+    description: "Escalation level: standard, urgent, emergency"
+
+steps:
+  - name: prepare_incident_summary
+    action: shell
+    command: "echo Preparing incident summary for {{incident_severity}} severity incident"
+    timeout: 30
+
+  - name: identify_stakeholders
+    action: shell
+    command: "echo Identifying stakeholders for {{escalation_level}} escalation"
+    timeout: 30
+
+  - name: send_email_notifications
+    action: shell
+    command: "echo Sending email notifications to security team"
+    timeout: 60
+    condition: "'email' in notification_channels"
+
+  - name: post_slack_alerts
+    action: shell
+    command: "echo Posting alerts to security Slack channels"
+    timeout: 30
+    condition: "'slack' in notification_channels"
+
+  - name: trigger_pagerduty
+    action: shell
+    command: "echo Triggering PagerDuty alerts for on-call team"
+    timeout: 60
+    condition: "'pagerduty' in notification_channels"
+
+  - name: update_incident_board
+    action: shell
+    command: "echo Updating incident response board"
+    timeout: 30
+
+  - name: log_notifications
+    action: shell
+    command: "echo Logging all notification attempts"
+    timeout: 30
+
+verify:
+  - name: check_notifications_sent
+    command: "echo Verifying notifications were sent successfully"
+    expected_output: "notifications sent"
+
+# No revert needed as notifications cannot be "unsent"

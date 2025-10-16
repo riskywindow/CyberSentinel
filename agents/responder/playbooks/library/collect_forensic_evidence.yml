@@ -1,0 +1,73 @@
+id: collect_forensic_evidence
+name: Comprehensive Forensic Evidence Collection
+description: Collects comprehensive forensic evidence from affected systems for investigation
+risk_tier: low
+tags:
+  - forensics
+  - evidence_collection
+  - investigation
+variables:
+  hostname: "${incident.primary_host}"
+  evidence_types: ["memory", "disk", "network", "logs", "registry"]
+  preserve_state: true
+prerequisites:
+  - forensic_tools
+  - admin_privileges
+  - storage_space
+estimated_duration_minutes: 45
+reversible: false
+
+steps:
+  - action: log_action
+    description: Log start of evidence collection
+    parameters:
+      message: "Starting comprehensive evidence collection on ${hostname}"
+      level: "info"
+    timeout_seconds: 30
+    
+  - action: collect_evidence
+    description: Collect memory dump
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["memory"]
+    timeout_seconds: 600
+    retry_count: 1
+    
+  - action: collect_evidence
+    description: Collect disk forensic image
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["disk"]
+    timeout_seconds: 1800
+    depends_on: ["collect_evidence"]
+    retry_count: 1
+    
+  - action: collect_evidence
+    description: Collect network artifacts
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["network"]
+    timeout_seconds: 300
+    
+  - action: collect_evidence
+    description: Collect system and security logs
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["logs"]
+    timeout_seconds: 180
+    
+  - action: collect_evidence
+    description: Collect Windows registry (if applicable)
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["registry"]
+    timeout_seconds: 240
+    
+  - action: notify_stakeholders
+    description: Notify forensics team
+    parameters:
+      message: "Forensic evidence collection completed for ${hostname}"
+      recipients: ["forensics-team@company.com", "legal@company.com"]
+      severity: "low"
+    timeout_seconds: 60
+    depends_on: ["collect_evidence"]

@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Cyber theme styling */
+.cyber-grid {
+  background-image: 
+    linear-gradient(rgba(16, 185, 129, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 185, 129, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.cyber-glow {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+.cyber-border {
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Terminal-like styling */
+.terminal {
+  font-family: 'JetBrains Mono', monospace;
+  background: #0a0e27;
+  color: #10b981;
+  border: 1px solid #10b981;
+}
+
+/* Status indicators */
+.status-online {
+  @apply bg-green-500 animate-pulse;
+}
+
+.status-warning {
+  @apply bg-yellow-500 animate-pulse;
+}
+
+.status-critical {
+  @apply bg-red-500 animate-pulse;
+}
+
+.status-offline {
+  @apply bg-gray-500;
+}
+
+/* Graph node styling */
+.graph-node {
+  transition: all 0.3s ease;
+}
+
+.graph-node:hover {
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.8));
+}
+
+/* Metric cards */
+.metric-card {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(16, 185, 129, 0.2);
+}

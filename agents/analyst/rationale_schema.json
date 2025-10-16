@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnalystRationale",
+  "type": "object",
+  "required": ["decision", "evidence_ids", "attack_candidates", "provenance"],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "description": "The analyst's decision or hypothesis about the incident"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of evidence identifiers supporting the decision"
+    },
+    "attack_candidates": {
+      "type": "array", 
+      "items": {
+        "type": "string"
+      },
+      "description": "List of ATT&CK technique IDs relevant to this incident"
+    },
+    "proposed_sigma_rule_id": {
+      "type": "string",
+      "description": "ID of any Sigma rule generated for this incident"
+    },
+    "confidence_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in the analysis (0.0 to 1.0)"
+    },
+    "severity_assessment": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Assessed severity of the incident"
+    },
+    "hypothesis": {
+      "type": "string", 
+      "description": "Detailed hypothesis about what occurred"
+    },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "timestamp": {"type": "string"},
+          "event": {"type": "string"},
+          "technique": {"type": "string"}
+        },
+        "required": ["timestamp", "event"]
+      },
+      "description": "Reconstructed timeline of events"
+    },
+    "indicators": {
+      "type": "array",
+      "items": {
+        "type": "object", 
+        "properties": {
+          "type": {"type": "string"},
+          "value": {"type": "string"},
+          "confidence": {"type": "number"}
+        },
+        "required": ["type", "value"]
+      },
+      "description": "Indicators of Compromise (IOCs) identified"
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "id", "score"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Source of the information (rag, graph, heuristic, etc.)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Identifier for the source (document ID, rule ID, etc.)"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Relevance/confidence score for this source"
+          },
+          "content_snippet": {
+            "type": "string", 
+            "description": "Brief snippet of relevant content from source"
+          }
+        }
+      },
+      "description": "Sources and evidence supporting the analysis"
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string"},
+          "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+          "rationale": {"type": "string"}
+        },
+        "required": ["action", "priority"]
+      },
+      "description": "Recommended actions based on analysis"
+    },
+    "detection_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "technique": {"type": "string"},
+          "gap_description": {"type": "string"},
+          "proposed_detection": {"type": "string"}
+        },
+        "required": ["technique", "gap_description"]
+      },
+      "description": "Identified detection gaps and proposed improvements"
+    }
+  }
+}

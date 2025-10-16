@@ -1,0 +1,147 @@
+scenarios:
+  - id: lateral_move_ssh
+    name: "SSH Lateral Movement"
+    description: "Simulated lateral movement using SSH after initial compromise"
+    seed: 42
+    duration_minutes: 15
+    hosts: ["workstation-01", "server-01", "server-02", "dc-01"]
+    steps:
+      - discovery
+      - ssh_brute_force
+      - lateral_move_ssh
+      - privilege_escalation
+      - data_access
+    datasets:
+      - zeek_conn_ssh
+      - osquery_processes_suspicious
+      - syslog_auth_failures
+      - suricata_ssh_alerts
+    tags: ["lateral-movement", "ssh", "T1021.004", "T1078"]
+
+  - id: cred_dump_windows
+    name: "Windows Credential Dumping"
+    description: "Credential harvesting using common Windows tools"
+    seed: 1337
+    duration_minutes: 20
+    hosts: ["workstation-win-01", "workstation-win-02", "dc-win-01"]
+    steps:
+      - discovery
+      - credential_dump
+      - privilege_escalation
+      - lateral_move_wmi
+      - exfil_sim
+    datasets:
+      - osquery_win_processes
+      - falco_file_access_suspicious
+      - zeek_conn_smb
+      - syslog_win_security
+    tags: ["credential-access", "windows", "T1003", "T1047"]
+
+  - id: web_shell_upload
+    name: "Web Shell Upload and Execution"
+    description: "Web application compromise leading to web shell deployment"
+    seed: 999
+    duration_minutes: 10
+    hosts: ["web-server-01", "db-server-01"]
+    steps:
+      - web_exploit
+      - web_shell_upload
+      - command_execution
+      - internal_recon
+      - data_exfiltration
+    datasets:
+      - suricata_web_attacks
+      - osquery_file_changes
+      - zeek_http_suspicious
+      - falco_shell_execution
+    tags: ["initial-access", "web-shell", "T1190", "T1505.003"]
+
+  - id: ransomware_simulation
+    name: "Ransomware Behavior Simulation"
+    description: "Simulated ransomware behavior patterns (safe simulation)"
+    seed: 777
+    duration_minutes: 25
+    hosts: ["workstation-01", "file-server-01", "backup-server-01"]
+    steps:
+      - initial_access
+      - discovery_network
+      - discovery_files
+      - encryption_simulation
+      - ransom_note_creation
+    datasets:
+      - osquery_file_mass_changes
+      - falco_crypto_processes
+      - zeek_conn_unusual_volumes
+      - syslog_system_events
+    tags: ["impact", "ransomware", "T1486", "T1490"]
+
+  - id: dns_tunneling
+    name: "DNS Tunneling Exfiltration"
+    description: "Data exfiltration using DNS tunneling techniques"
+    seed: 2048
+    duration_minutes: 30
+    hosts: ["workstation-01", "internal-dns-01"]
+    steps:
+      - establish_tunnel
+      - data_staging
+      - dns_exfiltration
+      - tunnel_maintenance
+    datasets:
+      - zeek_dns_tunneling
+      - suricata_dns_alerts
+      - osquery_network_connections
+    tags: ["exfiltration", "dns-tunneling", "T1041", "T1071.004"]
+
+  - id: supply_chain_compromise
+    name: "Supply Chain Attack Simulation"
+    description: "Simulated supply chain compromise through software update"
+    seed: 4096
+    duration_minutes: 40
+    hosts: ["update-server-01", "workstation-01", "workstation-02", "workstation-03"]
+    steps:
+      - compromise_update_server
+      - malicious_update_distribution
+      - client_compromise
+      - persistence_establishment
+      - lateral_movement
+    datasets:
+      - zeek_software_downloads
+      - osquery_software_installs
+      - falco_process_anomalies
+      - suricata_malware_alerts
+    tags: ["supply-chain", "initial-access", "T1195", "T1543"]
+
+  - id: cloud_privilege_escalation
+    name: "Cloud Privilege Escalation"
+    description: "AWS IAM privilege escalation scenario"
+    seed: 8192
+    duration_minutes: 20
+    hosts: ["cloud-workstation-01", "aws-api-gateway"]
+    steps:
+      - enumerate_permissions
+      - assume_role_escalation
+      - modify_policies
+      - access_sensitive_resources
+    datasets:
+      - aws_cloudtrail_iam
+      - osquery_cloud_metadata
+      - falco_aws_api_calls
+    tags: ["privilege-escalation", "cloud", "aws", "T1078.004"]
+
+  - id: living_off_the_land
+    name: "Living Off The Land"
+    description: "Attack using only built-in system tools"
+    seed: 16384
+    duration_minutes: 18
+    hosts: ["workstation-01", "server-01"]
+    steps:
+      - powershell_discovery
+      - wmi_lateral_movement  
+      - scheduled_task_persistence
+      - builtin_tool_abuse
+    datasets:
+      - osquery_powershell_activity
+      - syslog_scheduled_tasks
+      - zeek_wmi_activity
+      - falco_builtin_tool_abuse
+    tags: ["living-off-land", "powershell", "wmi", "T1059.001", "T1047"]

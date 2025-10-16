@@ -1,0 +1,59 @@
+id: kill_process
+name: Terminate Malicious Process
+description: Terminates a malicious process and quarantines associated files
+risk_tier: medium
+tags:
+  - process_termination
+  - malware_response
+  - containment
+variables:
+  hostname: "${incident.primary_host}"
+  process_name: "${incident.malicious_process}"
+  process_pid: null
+prerequisites:
+  - host_access
+  - admin_privileges
+estimated_duration_minutes: 5
+reversible: false
+
+steps:
+  - action: log_action
+    description: Log start of process termination
+    parameters:
+      message: "Starting process termination for ${process_name} on ${hostname}"
+      level: "warning"
+    timeout_seconds: 30
+    
+  - action: collect_evidence
+    description: Collect process information before termination
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["process_memory", "process_handles"]
+    timeout_seconds: 180
+    
+  - action: kill_process
+    description: Terminate the malicious process
+    parameters:
+      hostname: "${hostname}"
+      process_name: "${process_name}"
+      pid: "${process_pid}"
+    timeout_seconds: 60
+    depends_on: ["collect_evidence"]
+    retry_count: 2
+    
+  - action: scan_system
+    description: Scan system for related threats
+    parameters:
+      hostname: "${hostname}"
+      scan_type: "quick"
+    timeout_seconds: 300
+    depends_on: ["kill_process"]
+    
+  - action: notify_stakeholders
+    description: Notify of process termination
+    parameters:
+      message: "Malicious process ${process_name} terminated on ${hostname}"
+      recipients: ["security-team@company.com"]
+      severity: "medium"
+    timeout_seconds: 60
+    depends_on: ["scan_system"]

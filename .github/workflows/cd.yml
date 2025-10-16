@@ -1,0 +1,398 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+      version:
+        description: 'Version to deploy'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-images:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    strategy:
+      matrix:
+        component: [api, ui, agents, redteam, evaluation]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.component }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=tag
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/Dockerfile.${{ matrix.component }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+        provenance: true
+        sbom: true
+
+    - name: Sign container image
+      uses: sigstore/cosign-installer@v3
+    - name: Sign the images with GitHub OIDC Token
+      env:
+        DIGEST: ${{ steps.build.outputs.digest }}
+        TAGS: ${{ steps.meta.outputs.tags }}
+      run: cosign sign --yes "${TAGS}@${DIGEST}"
+
+  security-scan-images:
+    name: Security Scan Images
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    strategy:
+      matrix:
+        component: [api, ui, agents, redteam, evaluation]
+    
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.component }}:latest
+        format: 'sarif'
+        output: 'trivy-results-${{ matrix.component }}.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results-${{ matrix.component }}.sarif'
+
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: [build-images, security-scan-images]
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event.inputs.environment == 'dev')
+    environment:
+      name: development
+      url: https://dev.cybersentinel.example.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Deploy Infrastructure
+      working-directory: infra/terraform
+      run: |
+        ./deploy.sh -e dev -a apply -y
+      env:
+        TF_BACKEND_BUCKET: ${{ secrets.TF_BACKEND_BUCKET }}
+        TF_BACKEND_REGION: us-west-2
+        TF_BACKEND_DYNAMODB_TABLE: ${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name cybersentinel-dev
+
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 3.12.0
+
+    - name: Deploy Application
+      run: |
+        helm upgrade --install cybersentinel-dev ./infra/helm/cybersentinel \
+          --namespace cybersentinel \
+          --create-namespace \
+          --values ./infra/helm/cybersentinel/values-dev.yaml \
+          --set api.image.tag=${{ github.sha }} \
+          --set ui.image.tag=${{ github.sha }} \
+          --set agents.image.tag=${{ github.sha }} \
+          --wait --timeout=10m
+
+    - name: Run smoke tests
+      run: |
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cybersentinel -n cybersentinel --timeout=300s
+        kubectl port-forward -n cybersentinel svc/cybersentinel-api 8080:8000 &
+        sleep 10
+        curl -f http://localhost:8080/health || exit 1
+        echo "Smoke tests passed"
+
+    - name: Update deployment status
+      run: |
+        echo "Deployment successful to development environment"
+        kubectl get pods -n cybersentinel
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [deploy-dev]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://staging.cybersentinel.example.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Deploy Infrastructure
+      working-directory: infra/terraform
+      run: |
+        ./deploy.sh -e staging -a apply -y
+      env:
+        TF_BACKEND_BUCKET: ${{ secrets.TF_BACKEND_BUCKET }}
+        TF_BACKEND_REGION: us-west-2
+        TF_BACKEND_DYNAMODB_TABLE: ${{ secrets.TF_BACKEND_DYNAMODB_TABLE }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name cybersentinel-staging
+
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 3.12.0
+
+    - name: Deploy Application
+      run: |
+        helm upgrade --install cybersentinel-staging ./infra/helm/cybersentinel \
+          --namespace cybersentinel \
+          --create-namespace \
+          --values ./infra/helm/cybersentinel/values-staging.yaml \
+          --set api.image.tag=${{ github.sha }} \
+          --set ui.image.tag=${{ github.sha }} \
+          --set agents.image.tag=${{ github.sha }} \
+          --wait --timeout=15m
+
+    - name: Run integration tests
+      run: |
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cybersentinel -n cybersentinel --timeout=600s
+        
+        # Run full integration test suite
+        kubectl create job integration-test --from=cronjob/evaluation-harness -n cybersentinel
+        kubectl wait --for=condition=complete job/integration-test -n cybersentinel --timeout=1800s
+        
+        # Check results
+        kubectl logs job/integration-test -n cybersentinel
+        
+        echo "Integration tests completed successfully"
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'prod'
+    environment:
+      name: production
+      url: https://cybersentinel.example.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+        aws-region: us-west-2
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Deploy Infrastructure
+      working-directory: infra/terraform
+      run: |
+        ./deploy.sh -e prod -a apply -y
+      env:
+        TF_BACKEND_BUCKET: ${{ secrets.TF_BACKEND_BUCKET_PROD }}
+        TF_BACKEND_REGION: us-west-2
+        TF_BACKEND_DYNAMODB_TABLE: ${{ secrets.TF_BACKEND_DYNAMODB_TABLE_PROD }}
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region us-west-2 --name cybersentinel-prod
+
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 3.12.0
+
+    - name: Backup current deployment
+      run: |
+        # Create backup of current deployment
+        kubectl create backup prod-backup-$(date +%Y%m%d-%H%M%S) \
+          --from=deployment/cybersentinel-api \
+          --namespace=cybersentinel || true
+
+    - name: Deploy Application with Blue-Green
+      run: |
+        # Deploy to green environment
+        helm upgrade --install cybersentinel-green ./infra/helm/cybersentinel \
+          --namespace cybersentinel-green \
+          --create-namespace \
+          --values ./infra/helm/cybersentinel/values-prod.yaml \
+          --set api.image.tag=${{ github.sha }} \
+          --set ui.image.tag=${{ github.sha }} \
+          --set agents.image.tag=${{ github.sha }} \
+          --wait --timeout=20m
+
+    - name: Run production smoke tests
+      run: |
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cybersentinel -n cybersentinel-green --timeout=600s
+        
+        # Test green environment
+        kubectl port-forward -n cybersentinel-green svc/cybersentinel-api 8080:8000 &
+        sleep 15
+        
+        # Comprehensive health checks
+        curl -f http://localhost:8080/health || exit 1
+        curl -f http://localhost:8080/ready || exit 1
+        
+        # Test critical endpoints
+        curl -f http://localhost:8080/api/v1/status || exit 1
+        
+        echo "Production smoke tests passed"
+
+    - name: Switch traffic to green
+      run: |
+        # Update ingress to point to green environment
+        kubectl patch ingress cybersentinel-ingress -n cybersentinel-green \
+          -p '{"spec":{"rules":[{"host":"cybersentinel.example.com","http":{"paths":[{"path":"/","pathType":"Prefix","backend":{"service":{"name":"cybersentinel-green","port":{"number":80}}}}]}}]}}'
+        
+        # Wait for traffic switch
+        sleep 30
+        
+        # Verify production is working
+        curl -f https://cybersentinel.example.com/health || exit 1
+
+    - name: Cleanup old deployment
+      run: |
+        # Remove blue environment after successful green deployment
+        helm uninstall cybersentinel -n cybersentinel || true
+        kubectl delete namespace cybersentinel || true
+        
+        # Rename green to production
+        kubectl patch namespace cybersentinel-green -p '{"metadata":{"name":"cybersentinel"}}'
+
+    - name: Post-deployment verification
+      run: |
+        # Monitor for 5 minutes to ensure stability
+        for i in {1..10}; do
+          curl -f https://cybersentinel.example.com/health
+          echo "Health check $i/10 passed"
+          sleep 30
+        done
+        
+        echo "Production deployment completed successfully"
+
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: failure() && (needs.deploy-dev.result == 'failure' || needs.deploy-staging.result == 'failure' || needs.deploy-prod.result == 'failure')
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 3.12.0
+
+    - name: Rollback to previous version
+      run: |
+        # Determine which environment failed and rollback
+        if [ "${{ needs.deploy-prod.result }}" = "failure" ]; then
+          ENV="prod"
+        elif [ "${{ needs.deploy-staging.result }}" = "failure" ]; then
+          ENV="staging"
+        else
+          ENV="dev"
+        fi
+        
+        aws eks update-kubeconfig --region us-west-2 --name cybersentinel-${ENV}
+        helm rollback cybersentinel --namespace cybersentinel
+        
+        echo "Rollback completed for ${ENV} environment"
+
+    - name: Notify on failure
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: failure
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        text: "🚨 CyberSentinel deployment failed and was rolled back"

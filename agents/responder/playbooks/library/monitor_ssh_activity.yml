@@ -1,0 +1,79 @@
+id: monitor_ssh_activity
+name: Enhanced SSH Activity Monitoring
+description: Deploy comprehensive monitoring for SSH connections and activities
+risk_tier: low
+category: detective
+target_types:
+  - host
+  - ssh_service
+  - network
+
+estimated_duration: 12  # minutes
+reversible: true
+requires_approval: false
+
+variables:
+  log_level:
+    type: string
+    default: "verbose"
+    description: "SSH logging level: minimal, verbose, debug"
+  monitor_failed_attempts:
+    type: boolean
+    default: true
+    description: "Monitor failed authentication attempts"
+  track_session_activities:
+    type: boolean
+    default: true
+    description: "Track activities within SSH sessions"
+
+steps:
+  - name: identify_ssh_infrastructure
+    action: shell
+    command: "echo Identifying SSH infrastructure on {{target_host}}"
+    timeout: 30
+
+  - name: configure_ssh_logging
+    action: shell
+    command: "echo Configuring SSH logging to {{log_level}} level"
+    timeout: 60
+
+  - name: setup_authentication_monitoring
+    action: shell
+    command: "echo Setting up authentication attempt monitoring"
+    timeout: 90
+    condition: "{{monitor_failed_attempts}}"
+
+  - name: configure_session_logging
+    action: shell
+    command: "echo Configuring session activity logging"
+    timeout: 120
+    condition: "{{track_session_activities}}"
+
+  - name: deploy_detection_rules
+    action: shell
+    command: "echo Deploying SSH-specific detection rules"
+    timeout: 90
+
+  - name: setup_real_time_alerts
+    action: shell
+    command: "echo Setting up real-time alerts for suspicious SSH activity"
+    timeout: 60
+
+  - name: configure_log_forwarding
+    action: shell
+    command: "echo Configuring log forwarding to SIEM"
+    timeout: 60
+
+  - name: test_monitoring_system
+    action: shell
+    command: "echo Testing SSH monitoring system"
+    timeout: 90
+
+verify:
+  - name: check_monitoring_active
+    command: "echo Verifying SSH monitoring is active"
+    expected_output: "ssh monitoring active"
+
+revert:
+  - name: restore_default_logging
+    command: "echo Restoring default SSH logging configuration"

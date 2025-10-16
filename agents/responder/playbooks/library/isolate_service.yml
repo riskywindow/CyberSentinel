@@ -1,0 +1,78 @@
+id: isolate_service
+name: Isolate Compromised Service
+description: Isolate a compromised service while preserving forensic evidence
+risk_tier: medium
+category: containment
+target_types:
+  - service
+  - process
+  - host
+
+estimated_duration: 8  # minutes
+reversible: true
+requires_approval: true
+
+variables:
+  service_name:
+    type: string
+    required: true
+    description: "Name of the service to isolate"
+  preserve_state:
+    type: boolean
+    default: true
+    description: "Preserve service state for forensic analysis"
+
+steps:
+  - name: identify_service
+    action: shell
+    command: "echo Identifying service {{service_name}} on {{target_host}}"
+    timeout: 30
+
+  - name: capture_service_state
+    action: shell
+    command: "echo Capturing current state of service {{service_name}}"
+    timeout: 60
+    condition: "{{preserve_state}}"
+
+  - name: list_dependencies
+    action: shell
+    command: "echo Listing service dependencies for {{service_name}}"
+    timeout: 30
+
+  - name: stop_service
+    action: shell
+    command: "echo Stopping service {{service_name}}"
+    timeout: 60
+
+  - name: disable_service_startup
+    action: shell
+    command: "echo Disabling automatic startup for {{service_name}}"
+    timeout: 30
+
+  - name: isolate_service_files
+    action: shell
+    command: "echo Isolating service binaries and configuration files"
+    timeout: 120
+
+  - name: block_service_network
+    action: shell
+    command: "echo Blocking network access for service {{service_name}}"
+    timeout: 60
+
+  - name: notify_dependent_services
+    action: shell
+    command: "echo Notifying administrators about dependent services"
+    timeout: 30
+
+verify:
+  - name: check_service_stopped
+    command: "echo Verifying service {{service_name}} is stopped"
+    expected_output: "service stopped"
+
+revert:
+  - name: restore_service
+    command: "echo Restoring service {{service_name}} from isolation"
+  - name: enable_startup
+    command: "echo Re-enabling automatic startup for {{service_name}}"
+  - name: restore_network_access
+    command: "echo Restoring network access for service {{service_name}}"

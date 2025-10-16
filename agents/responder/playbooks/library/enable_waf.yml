@@ -1,0 +1,82 @@
+id: enable_waf
+name: Enable Web Application Firewall
+description: Deploy and configure WAF protection for web applications
+risk_tier: low
+category: preventive
+target_types:
+  - web_application
+  - load_balancer
+  - reverse_proxy
+
+estimated_duration: 20  # minutes
+reversible: true
+requires_approval: false
+
+variables:
+  application_name:
+    type: string
+    required: true
+    description: "Name of the web application to protect"
+  protection_level:
+    type: string
+    default: "strict"
+    description: "WAF protection level: basic, standard, strict"
+  block_mode:
+    type: boolean
+    default: false
+    description: "Enable blocking mode (vs detection only)"
+
+steps:
+  - name: identify_web_application
+    action: shell
+    command: "echo Identifying web application {{application_name}}"
+    timeout: 30
+
+  - name: analyze_traffic_patterns
+    action: shell
+    command: "echo Analyzing current traffic patterns for {{application_name}}"
+    timeout: 180
+
+  - name: configure_waf_rules
+    action: shell
+    command: "echo Configuring WAF rules with {{protection_level}} protection level"
+    timeout: 120
+
+  - name: setup_owasp_protection
+    action: shell
+    command: "echo Setting up OWASP Top 10 protection rules"
+    timeout: 90
+
+  - name: configure_rate_limiting
+    action: shell
+    command: "echo Configuring rate limiting and DDoS protection"
+    timeout: 60
+
+  - name: setup_geo_blocking
+    action: shell
+    command: "echo Setting up geo-based access controls if needed"
+    timeout: 60
+
+  - name: enable_logging
+    action: shell
+    command: "echo Enabling comprehensive WAF logging"
+    timeout: 30
+
+  - name: activate_waf
+    action: shell
+    command: "echo Activating WAF in {{block_mode and 'blocking' or 'detection'}} mode"
+    timeout: 60
+
+  - name: test_protection
+    action: shell
+    command: "echo Testing WAF protection with safe test payloads"
+    timeout: 120
+
+verify:
+  - name: check_waf_active
+    command: "echo Verifying WAF is active for {{application_name}}"
+    expected_output: "waf active"
+
+revert:
+  - name: disable_waf
+    command: "echo Disabling WAF protection for {{application_name}}"

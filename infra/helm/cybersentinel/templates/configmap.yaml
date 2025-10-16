@@ -1,0 +1,149 @@
+{{- include "cybersentinel.validateValues" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cybersentinel.configMapName" . }}
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+data:
+  # Application Configuration
+  environment: {{ .Values.app.environment | quote }}
+  app_version: {{ .Chart.AppVersion | quote }}
+  log_level: {{ .Values.app.logLevel | default "INFO" | quote }}
+  
+  # Database Configuration
+  postgres_host: {{ include "cybersentinel.postgresHost" . | quote }}
+  postgres_port: {{ .Values.clickhouse.external.port | default "5432" | quote }}
+  postgres_db: {{ .Values.clickhouse.external.database | default "cybersentinel" | quote }}
+  
+  redis_host: {{ include "cybersentinel.redisHost" . | quote }}
+  redis_port: {{ .Values.redis.external.port | default "6379" | quote }}
+  
+  clickhouse_host: {{ include "cybersentinel.clickhouseHost" . | quote }}
+  clickhouse_port: {{ .Values.clickhouse.external.port | default "8123" | quote }}
+  clickhouse_db: {{ .Values.clickhouse.external.database | default "cybersentinel" | quote }}
+  
+  neo4j_host: {{ include "cybersentinel.neo4jHost" . | quote }}
+  neo4j_port: {{ .Values.neo4j.external.port | default "7687" | quote }}
+  neo4j_db: {{ .Values.neo4j.external.database | default "neo4j" | quote }}
+  
+  nats_host: {{ include "cybersentinel.natsHost" . | quote }}
+  nats_port: {{ .Values.nats.port | default "4222" | quote }}
+  
+  # API Configuration
+  api_workers: {{ .Values.api.workers | default "4" | quote }}
+  api_timeout: {{ .Values.api.timeout | default "30" | quote }}
+  api_max_connections: {{ .Values.api.maxConnections | default "100" | quote }}
+  
+  # Agent Configuration
+  agent_scout_enabled: {{ .Values.agents.scout.enabled | quote }}
+  agent_analyst_enabled: {{ .Values.agents.analyst.enabled | quote }}
+  agent_responder_enabled: {{ .Values.agents.responder.enabled | quote }}
+  
+  # Red Team Configuration
+  redteam_enabled: {{ .Values.redteam.enabled | quote }}
+  redteam_simulation_interval: {{ .Values.redteam.simulationInterval | default "300" | quote }}
+  
+  # Evaluation Configuration
+  evaluation_enabled: {{ .Values.evaluation.enabled | quote }}
+  evaluation_report_retention: {{ .Values.evaluation.reportRetention | default "30" | quote }}
+  
+  # Monitoring Configuration
+  metrics_enabled: {{ .Values.monitoring.enabled | quote }}
+  metrics_port: {{ .Values.monitoring.port | default "9090" | quote }}
+  tracing_enabled: {{ .Values.monitoring.tracing.enabled | default "true" | quote }}
+  
+  # Storage Configuration
+  s3_bucket_data: {{ .Values.storage.s3.bucketData | default "" | quote }}
+  s3_bucket_logs: {{ .Values.storage.s3.bucketLogs | default "" | quote }}
+  s3_bucket_backups: {{ .Values.storage.s3.bucketBackups | default "" | quote }}
+  s3_region: {{ .Values.storage.s3.region | default "us-west-2" | quote }}
+  
+  # Security Configuration
+  security_enabled: {{ .Values.security.enabled | default "true" | quote }}
+  tls_enabled: {{ .Values.security.tls.enabled | default "true" | quote }}
+  auth_enabled: {{ .Values.security.auth.enabled | default "true" | quote }}
+  
+  # Feature Flags
+  feature_graph_visualization: {{ .Values.features.graphVisualization | default "true" | quote }}
+  feature_real_time_analysis: {{ .Values.features.realTimeAnalysis | default "true" | quote }}
+  feature_automated_response: {{ .Values.features.automatedResponse | default "false" | quote }}
+  feature_threat_intelligence: {{ .Values.features.threatIntelligence | default "true" | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-scripts
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+data:
+  healthcheck.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Check API health
+    if command -v curl >/dev/null 2>&1; then
+      curl -f http://localhost:8000/health || exit 1
+    elif command -v wget >/dev/null 2>&1; then
+      wget --quiet --tries=1 --spider http://localhost:8000/health || exit 1
+    else
+      echo "Neither curl nor wget available for health check"
+      exit 1
+    fi
+    
+    echo "Health check passed"
+  
+  backup.sh: |
+    #!/bin/bash
+    set -e
+    
+    BACKUP_DIR="/tmp/backup-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    
+    # Backup application data
+    if [ -d "/app/data" ]; then
+      cp -r /app/data "$BACKUP_DIR/"
+    fi
+    
+    # Backup configuration
+    if [ -f "/app/config.yaml" ]; then
+      cp /app/config.yaml "$BACKUP_DIR/"
+    fi
+    
+    # Compress backup
+    tar -czf "${BACKUP_DIR}.tar.gz" -C /tmp "$(basename "$BACKUP_DIR")"
+    rm -rf "$BACKUP_DIR"
+    
+    echo "Backup created: ${BACKUP_DIR}.tar.gz"
+  
+  init-db.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Waiting for database connections..."
+    
+    # Wait for PostgreSQL
+    until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER"; do
+      echo "Waiting for PostgreSQL..."
+      sleep 2
+    done
+    
+    # Wait for Redis
+    until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping; do
+      echo "Waiting for Redis..."
+      sleep 2
+    done
+    
+    # Wait for ClickHouse
+    until curl -f "http://$CLICKHOUSE_HOST:$CLICKHOUSE_PORT/ping"; do
+      echo "Waiting for ClickHouse..."
+      sleep 2
+    done
+    
+    # Wait for Neo4j
+    until cypher-shell -a "bolt://$NEO4J_HOST:$NEO4J_PORT" -u neo4j -p "$NEO4J_PASSWORD" "RETURN 1"; do
+      echo "Waiting for Neo4j..."
+      sleep 2
+    done
+    
+    echo "All databases are ready!"

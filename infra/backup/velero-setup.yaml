@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    name: velero
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: velero
+  namespace: velero
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cybersentinel-ENV-velero-role"
+---
+# Velero CRDs and resources will be installed by Helm chart
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-backup-config
+  namespace: velero
+data:
+  backup-schedule.yaml: |
+    apiVersion: velero.io/v1
+    kind: Schedule
+    metadata:
+      name: cybersentinel-daily-backup
+      namespace: velero
+    spec:
+      schedule: "0 2 * * *"  # Daily at 2 AM
+      template:
+        includedNamespaces:
+        - cybersentinel
+        - cybersentinel-system
+        - monitoring
+        excludedResources:
+        - events
+        - events.events.k8s.io
+        - backups.velero.io
+        - restores.velero.io
+        - resticrepositories.velero.io
+        snapshotVolumes: true
+        ttl: 168h0m0s  # 7 days retention
+        storageLocation: aws-s3
+        volumeSnapshotLocations:
+        - aws-ebs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-restore-config
+  namespace: velero
+data:
+  disaster-recovery-restore.yaml: |
+    apiVersion: velero.io/v1
+    kind: Restore
+    metadata:
+      name: cybersentinel-disaster-recovery
+      namespace: velero
+    spec:
+      backupName: cybersentinel-disaster-backup
+      restorePVs: true
+      existingResourcePolicy: update
+      includedNamespaces:
+      - cybersentinel
+      - cybersentinel-system
+      - monitoring
+      excludedResources:
+      - nodes
+      - events
+      - events.events.k8s.io
+      - backups.velero.io
+      - restores.velero.io
+      namespaceMapping:
+        cybersentinel: cybersentinel-restored
+---
+# Backup Storage Location
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: aws-s3
+  namespace: velero
+spec:
+  provider: aws
+  objectStorage:
+    bucket: cybersentinel-ENV-backups
+    prefix: velero
+  config:
+    region: us-west-2
+    s3ForcePathStyle: "false"
+---
+# Volume Snapshot Location
+apiVersion: velero.io/v1
+kind: VolumeSnapshotLocation
+metadata:
+  name: aws-ebs
+  namespace: velero
+spec:
+  provider: aws
+  config:
+    region: us-west-2
+---
+# Weekly full backup schedule
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: cybersentinel-weekly-full-backup
+  namespace: velero
+spec:
+  schedule: "0 1 * * 0"  # Weekly on Sunday at 1 AM
+  template:
+    includedNamespaces:
+    - cybersentinel
+    - cybersentinel-system
+    - monitoring
+    - kube-system
+    excludedResources:
+    - events
+    - events.events.k8s.io
+    snapshotVolumes: true
+    includeClusterResources: true
+    ttl: 720h0m0s  # 30 days retention
+    storageLocation: aws-s3
+    volumeSnapshotLocations:
+    - aws-ebs
+    labelSelector:
+      matchLabels:
+        backup: "required"
+---
+# Critical data backup (more frequent)
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: cybersentinel-critical-backup
+  namespace: velero
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours
+  template:
+    includedNamespaces:
+    - cybersentinel
+    includedResources:
+    - persistentvolumeclaims
+    - secrets
+    - configmaps
+    labelSelector:
+      matchLabels:
+        backup-frequency: "critical"
+    snapshotVolumes: true
+    ttl: 72h0m0s  # 3 days retention
+    storageLocation: aws-s3
+    volumeSnapshotLocations:
+    - aws-ebs

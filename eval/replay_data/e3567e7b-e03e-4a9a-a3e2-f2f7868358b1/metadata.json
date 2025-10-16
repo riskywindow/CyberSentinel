@@ -1,0 +1,12 @@
+{
+  "session_id": "e3567e7b-e03e-4a9a-a3e2-f2f7868358b1",
+  "scenario_id": "test_scenario",
+  "original_execution_id": "test_execution",
+  "start_time": "2025-10-15T15:14:50.724204",
+  "end_time": "2025-10-15T15:14:50.724379",
+  "event_count": 3,
+  "snapshot_count": 2,
+  "metadata": {
+    "test": true
+  }
+}

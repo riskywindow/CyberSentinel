@@ -1,0 +1,34 @@
+{
+  "critical_systems": [
+    "dc-primary-01",
+    "dc-secondary-01", 
+    "db-primary-cluster",
+    "web-prod-lb",
+    "auth-server-01",
+    "auth-server-02",
+    "backup-server",
+    "monitoring-server"
+  ],
+  "critical_networks": [
+    "10.0.1.0/24",
+    "192.168.100.0/24"
+  ],
+  "restricted_hours": {
+    "maintenance_window": {
+      "start": "02:00",
+      "end": "04:00", 
+      "timezone": "America/New_York",
+      "allow_high_risk": true
+    }
+  },
+  "playbook_risk_overrides": {
+    "emergency_isolation": "high",
+    "mass_password_reset": "critical"
+  },
+  "approval_workflows": {
+    "low": [],
+    "medium": ["security-lead"],
+    "high": ["security-lead", "ciso"],
+    "critical": ["security-lead", "ciso", "cto"]
+  }
+}

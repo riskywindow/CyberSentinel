@@ -1,0 +1,49 @@
+id: block_source_ip
+name: Block Malicious Source IP
+description: Blocks a malicious IP address at network perimeter and internal firewalls
+risk_tier: low
+tags:
+  - network_blocking
+  - ip_reputation
+  - perimeter_defense
+variables:
+  source_ip: "${incident.malicious_ip}"
+  block_duration: "24h"
+prerequisites:
+  - firewall_access
+  - network_admin
+estimated_duration_minutes: 3
+reversible: true
+
+steps:
+  - action: log_action
+    description: Log IP blocking initiation
+    parameters:
+      message: "Blocking malicious IP ${source_ip}"
+      level: "warning"
+    timeout_seconds: 30
+    
+  - action: block_ip
+    description: Add IP to firewall block list
+    parameters:
+      ip_address: "${source_ip}"
+      duration: "${block_duration}"
+    timeout_seconds: 120
+    retry_count: 3
+    
+  - action: update_firewall
+    description: Update perimeter firewall rules
+    parameters:
+      rules: ["DENY ${source_ip}/32 ANY ANY"]
+      action: "add"
+    timeout_seconds: 180
+    depends_on: ["block_ip"]
+    
+  - action: notify_stakeholders
+    description: Notify of IP blocking
+    parameters:
+      message: "Blocked malicious IP ${source_ip} for ${block_duration}"
+      recipients: ["security-team@company.com"]
+      severity: "medium"
+    timeout_seconds: 60
+    depends_on: ["update_firewall"]

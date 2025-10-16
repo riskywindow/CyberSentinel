@@ -1,0 +1,66 @@
+id: isolate_host
+name: Isolate Compromised Host
+description: Isolates a compromised host from the network while preserving forensic evidence
+risk_tier: high
+tags:
+  - containment
+  - network_isolation
+  - forensics
+variables:
+  hostname: "${incident.primary_host}"
+  backup_enabled: true
+prerequisites:
+  - network_access
+  - admin_privileges
+estimated_duration_minutes: 15
+reversible: true
+
+steps:
+  - action: log_action
+    description: Log start of host isolation procedure
+    parameters:
+      message: "Starting host isolation for ${hostname}"
+      level: "info"
+    timeout_seconds: 30
+    
+  - action: collect_evidence
+    description: Collect forensic evidence before isolation
+    parameters:
+      hostname: "${hostname}"
+      evidence_types: ["memory", "network_connections", "running_processes"]
+    timeout_seconds: 300
+    depends_on: []
+    
+  - action: backup_system
+    description: Create backup before isolation (if enabled)
+    parameters:
+      hostname: "${hostname}"
+      backup_type: "incremental"
+    timeout_seconds: 600
+    depends_on: ["collect_evidence"]
+    retry_count: 1
+    
+  - action: isolate_host
+    description: Isolate host from network
+    parameters:
+      hostname: "${hostname}"
+    timeout_seconds: 120
+    depends_on: ["backup_system"]
+    retry_count: 2
+    
+  - action: notify_stakeholders
+    description: Notify security team of isolation
+    parameters:
+      message: "Host ${hostname} has been isolated due to security incident"
+      recipients: ["security-team@company.com", "soc@company.com"]
+      severity: "high"
+    timeout_seconds: 60
+    depends_on: ["isolate_host"]
+    
+  - action: log_action
+    description: Log completion of isolation
+    parameters:
+      message: "Host isolation completed for ${hostname}"
+      level: "info"
+    timeout_seconds: 30
+    depends_on: ["notify_stakeholders"]

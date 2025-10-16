@@ -1,0 +1,13 @@
+{
+  "session_id": "bf0a29a0-c978-4896-8c87-856809c5aa2c",
+  "scenario_id": "lateral_move_ssh",
+  "original_execution_id": "eval_lateral_move_ssh_20251015_063614",
+  "start_time": "2025-10-15T06:36:14.434267",
+  "end_time": "2025-10-15T06:36:24.443788",
+  "event_count": 1,
+  "snapshot_count": 2,
+  "metadata": {
+    "integration_mode": true,
+    "configuration": null
+  }
+}

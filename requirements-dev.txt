@@ -1,0 +1,46 @@
+# Development dependencies
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+pytest-xdist>=3.3.0
+
+# Linting and Formatting
+ruff>=0.1.0
+mypy>=1.6.0
+black>=23.9.0  # Backup formatter
+
+# Type Stubs
+types-requests>=2.31.0
+types-redis>=4.6.0
+types-PyYAML>=6.0.0
+
+# Documentation
+mkdocs>=1.5.0
+mkdocs-material>=9.4.0
+mkdocs-mermaid2-plugin>=1.1.0
+
+# Security
+bandit>=1.7.0
+safety>=2.3.0
+semgrep>=1.45.0
+
+# Jupyter (for analysis)
+jupyter>=1.0.0
+ipykernel>=6.25.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Performance profiling
+py-spy>=0.3.0
+memory-profiler>=0.61.0
+
+# Build tools
+build>=0.10.0
+twine>=4.0.0
+
+# Dev utilities
+pre-commit>=3.5.0
+coverage>=7.3.0

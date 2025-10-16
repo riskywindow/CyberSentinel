@@ -1,0 +1,71 @@
+id: disable_ssh
+name: Disable SSH Access
+description: Temporarily disable SSH access to prevent lateral movement
+risk_tier: high
+category: containment
+target_types:
+  - host
+  - ssh_service
+
+estimated_duration: 5  # minutes
+reversible: true
+requires_approval: true
+
+variables:
+  preserve_existing_sessions:
+    type: boolean
+    default: true
+    description: "Preserve existing SSH sessions"
+  emergency_access_method:
+    type: string
+    default: "console"
+    description: "Alternative access method: console, rdp, vpn"
+
+steps:
+  - name: identify_ssh_service
+    action: shell
+    command: "echo Identifying SSH service on {{target_host}}"
+    timeout: 30
+
+  - name: list_active_sessions
+    action: shell
+    command: "echo Listing active SSH sessions"
+    timeout: 30
+
+  - name: backup_ssh_config
+    action: shell
+    command: "echo Backing up SSH configuration"
+    timeout: 30
+
+  - name: stop_ssh_service
+    action: shell
+    command: "echo Stopping SSH service"
+    timeout: 60
+
+  - name: disable_ssh_startup
+    action: shell
+    command: "echo Disabling SSH service from startup"
+    timeout: 30
+
+  - name: block_ssh_port
+    action: shell
+    command: "echo Blocking SSH port 22 at firewall level"
+    timeout: 60
+
+  - name: notify_administrators
+    action: shell
+    command: "echo Notifying administrators about SSH access disruption"
+    timeout: 30
+
+verify:
+  - name: check_ssh_disabled
+    command: "echo Verifying SSH service is disabled"
+    expected_output: "ssh disabled"
+
+revert:
+  - name: restore_ssh_config
+    command: "echo Restoring SSH configuration"
+  - name: enable_ssh_service
+    command: "echo Re-enabling SSH service"
+  - name: unblock_ssh_port
+    command: "echo Unblocking SSH port at firewall level"

@@ -1,0 +1,72 @@
+id: monitor_brute_force
+name: Enhanced Brute Force Monitoring
+description: Deploy enhanced monitoring for brute force attack detection
+risk_tier: low
+category: detective
+target_types:
+  - host
+  - network
+  - authentication_system
+
+estimated_duration: 15  # minutes
+reversible: true
+requires_approval: false
+
+variables:
+  threshold_attempts:
+    type: int
+    default: 10
+    description: "Failed login attempts threshold"
+  time_window:
+    type: int
+    default: 5
+    description: "Time window in minutes"
+  alert_severity:
+    type: string
+    default: "high"
+    description: "Alert severity level"
+
+steps:
+  - name: identify_auth_sources
+    action: shell
+    command: "echo Identifying authentication sources on {{target_host}}"
+    timeout: 30
+
+  - name: configure_failed_login_alerts
+    action: shell
+    command: "echo Configuring failed login alerts for threshold {{threshold_attempts}}"
+    timeout: 60
+
+  - name: setup_real_time_monitoring
+    action: shell
+    command: "echo Setting up real-time monitoring for brute force patterns"
+    timeout: 120
+
+  - name: configure_log_aggregation
+    action: shell
+    command: "echo Configuring log aggregation for authentication events"
+    timeout: 90
+
+  - name: deploy_detection_rules
+    action: shell
+    command: "echo Deploying Sigma detection rules for brute force attacks"
+    timeout: 60
+
+  - name: setup_alerting
+    action: shell
+    command: "echo Setting up alerting with severity {{alert_severity}}"
+    timeout: 30
+
+  - name: test_monitoring
+    action: shell
+    command: "echo Testing monitoring system with simulated events"
+    timeout: 120
+
+verify:
+  - name: check_monitoring_active
+    command: "echo Verifying brute force monitoring is active"
+    expected_output: "monitoring active"
+
+revert:
+  - name: disable_enhanced_monitoring
+    command: "echo Disabling enhanced brute force monitoring"

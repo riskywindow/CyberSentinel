@@ -1,0 +1,319 @@
+name: CyberSentinel CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "18"
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+          pip install -r requirements-dev.txt
+      
+      - name: Run ruff linting
+        run: ruff check .
+      
+      - name: Run ruff formatting check
+        run: ruff format --check .
+      
+      - name: Run mypy type checking
+        run: mypy . --ignore-missing-imports
+
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements-dev.txt
+      
+      - name: Compile protobuf
+        run: make proto
+      
+      - name: Run unit tests
+        run: python -m pytest tests/ -v --cov=. --cov-report=xml
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unit
+          name: unit-tests
+
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:23.8
+        ports:
+          - 8123:8123
+        options: --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping" --health-interval 10s --health-timeout 5s --health-retries 3
+      
+      neo4j:
+        image: neo4j:5.12
+        ports:
+          - 7687:7687
+        env:
+          NEO4J_AUTH: neo4j/password
+        options: --health-cmd "cypher-shell -u neo4j -p password 'RETURN 1'" --health-interval 10s --health-timeout 5s --health-retries 5
+      
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+      
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements-dev.txt
+      
+      - name: Compile protobuf
+        run: make proto
+      
+      - name: Wait for services
+        run: |
+          sleep 30  # Give services time to fully start
+      
+      - name: Install schemas
+        run: |
+          python -c "from storage import ClickHouseClient, Neo4jClient; ch = ClickHouseClient(); ch.connect(); ch.install_schema(); ch.disconnect(); neo = Neo4jClient(); neo.connect(); neo.install_schema(); neo.disconnect()"
+      
+      - name: Run integration tests
+        run: python -m pytest integration_tests/ -v --cov=. --cov-report=xml
+        env:
+          CLICKHOUSE_URL: http://localhost:8123
+          NEO4J_URI: neo4j://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: password
+          NATS_URL: nats://localhost:4222
+          REDIS_URL: redis://localhost:6379
+
+  test-detections:
+    name: Detection Tests
+    runs-on: ubuntu-latest
+    needs: [test-unit, test-integration]
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:23.8
+        ports:
+          - 8123:8123
+        options: --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping" --health-interval 10s --health-timeout 5s --health-retries 3
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements-dev.txt
+      
+      - name: Compile protobuf
+        run: make proto
+      
+      - name: Load demo data
+        run: |
+          sleep 20  # Wait for ClickHouse
+          make seed
+        env:
+          CLICKHOUSE_URL: http://localhost:8123
+      
+      - name: Run detection tests
+        run: python -m pytest detections/sigma/tests/ -v
+        env:
+          CLICKHOUSE_URL: http://localhost:8123
+      
+      - name: Check detection thresholds
+        run: |
+          echo "Checking detection precision/recall thresholds..."
+          python -c "
+          import json, sys
+          with open('eval/detection_metrics.json', 'r') as f:
+              metrics = json.load(f)
+          tpr = metrics.get('true_positive_rate', 0)
+          fpr = metrics.get('false_positive_rate', 1)
+          if tpr < 0.8:
+              print(f'TPR {tpr} < 0.8 threshold')
+              sys.exit(1)
+          if fpr > 0.01:
+              print(f'FPR {fpr} > 0.01 threshold')
+              sys.exit(1)
+          print(f'Detection thresholds met: TPR={tpr}, FPR={fpr}')
+          "
+
+  build-ui:
+    name: Build UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+      
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+      
+      - name: Run UI tests
+        working-directory: ui
+        run: npm test
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Bandit security scan
+        run: |
+          pip install bandit[toml]
+          bandit -r . -f json -o bandit-report.json
+      
+      - name: Run Safety scan
+        run: |
+          pip install safety
+          safety check --json --output safety-report.json
+      
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/python
+
+  build-and-test:
+    name: Full System Test
+    runs-on: ubuntu-latest
+    needs: [lint, test-unit, test-integration, test-detections, build-ui]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements-dev.txt
+      
+      - name: Start services
+        run: |
+          docker-compose up -d clickhouse neo4j nats redis
+          sleep 60  # Wait for all services
+      
+      - name: Run full evaluation
+        run: |
+          make proto
+          make seed
+          make eval
+        env:
+          CLICKHOUSE_URL: http://localhost:8123
+          NEO4J_URI: neo4j://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: password
+          NATS_URL: nats://localhost:4222
+          REDIS_URL: redis://localhost:6379
+      
+      - name: Generate SBOM
+        run: |
+          # Install syft
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft . -o json=sbom.json
+      
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v3
+        with:
+          name: evaluation-report
+          path: |
+            eval/reports/
+            eval/scorecard.json
+            sbom.json
+      
+      - name: Stop services
+        if: always()
+        run: docker-compose down
+
+  # Only run on main branch pushes
+  deploy-docs:
+    name: Deploy Documentation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-and-test]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate docs
+        run: |
+          pip install mkdocs mkdocs-material
+          mkdocs build
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site

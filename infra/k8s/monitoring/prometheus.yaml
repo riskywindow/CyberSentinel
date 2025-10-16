@@ -1,0 +1,316 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'cybersentinel'
+        environment: 'dev'
+
+    rule_files:
+      - "cybersentinel_rules.yml"
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+        - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: default;kubernetes;https
+
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+        - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics
+
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role: pod
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+
+      - job_name: 'cybersentinel-api'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - cybersentinel
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          action: keep
+          regex: api
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          action: keep
+          regex: 8000
+
+      - job_name: 'cybersentinel-agents'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - cybersentinel
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          action: keep
+          regex: (scout|analyst|responder)
+
+  cybersentinel_rules.yml: |
+    groups:
+    - name: cybersentinel.rules
+      rules:
+      - alert: CyberSentinelAPIDown
+        expr: up{job="cybersentinel-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CyberSentinel API is down"
+          description: "CyberSentinel API has been down for more than 1 minute."
+
+      - alert: CyberSentinelHighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="cybersentinel-api"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response time on CyberSentinel API"
+          description: "95th percentile response time is {{ $value }}s for 5 minutes."
+
+      - alert: CyberSentinelHighErrorRate
+        expr: rate(http_requests_total{job="cybersentinel-api",status=~"5.."}[5m]) / rate(http_requests_total{job="cybersentinel-api"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate on CyberSentinel API"
+          description: "Error rate is {{ $value | humanizePercentage }} for 5 minutes."
+
+      - alert: CyberSentinelDetectionEngineDown
+        expr: up{job="cybersentinel-agents",component="analyst"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CyberSentinel Detection Engine is down"
+          description: "Detection engine has been down for more than 2 minutes."
+
+      - alert: CyberSentinelLowDetectionRate
+        expr: rate(detections_total[10m]) < 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low detection rate"
+          description: "Detection rate is {{ $value }} detections/second over 10 minutes."
+
+      - alert: CyberSentinelDatabaseConnectionFailed
+        expr: database_connection_failures_total > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failures detected"
+          description: "{{ $value }} database connection failures in the last minute."
+
+      - alert: CyberSentinelMemoryUsageHigh
+        expr: (process_resident_memory_bytes{job="cybersentinel-api"} / 1024 / 1024) > 2048
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage in CyberSentinel API"
+          description: "Memory usage is {{ $value }}MB for 5 minutes."
+
+      - alert: CyberSentinelCPUUsageHigh
+        expr: rate(process_cpu_seconds_total{job="cybersentinel-api"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage in CyberSentinel API"
+          description: "CPU usage is {{ $value }}% for 5 minutes."
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.47.0
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=200h'
+          - '--web.enable-lifecycle'
+          - '--web.enable-admin-api'
+        ports:
+        - containerPort: 9090
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1
+            memory: 2Gi
+        volumeMounts:
+        - name: prometheus-config-volume
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage-volume
+          mountPath: /prometheus/
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          timeoutSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 30
+          timeoutSeconds: 30
+      volumes:
+      - name: prometheus-config-volume
+        configMap:
+          defaultMode: 420
+          name: prometheus-config
+      - name: prometheus-storage-volume
+        persistentVolumeClaim:
+          claimName: prometheus-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: gp3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: prometheus

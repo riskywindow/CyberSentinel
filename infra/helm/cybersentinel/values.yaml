@@ -1,0 +1,331 @@
+# CyberSentinel Helm Chart Values
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: "gp3"
+
+# Application configuration
+app:
+  name: cybersentinel
+  version: "1.0.0"
+  environment: "dev"
+
+# API Service Configuration
+api:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: cybersentinel/api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    annotations: {}
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  env:
+    - name: ENVIRONMENT
+      value: "dev"
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: WORKERS
+      value: "4"
+
+# UI Service Configuration
+ui:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: cybersentinel/ui
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    annotations: {}
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Agent Services Configuration
+agents:
+  scout:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: cybersentinel/scout-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  analyst:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: cybersentinel/analyst-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  
+  responder:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: cybersentinel/responder-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# Red Team Simulator Configuration
+redteam:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: cybersentinel/redteam-simulator
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+
+# Evaluation Harness Configuration
+evaluation:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: cybersentinel/evaluation-harness
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+# Ingress Configuration
+ingress:
+  enabled: true
+  className: "aws-load-balancer-controller"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ""
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+  hosts:
+    - host: cybersentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: cybersentinel-ui
+            port: 3000
+        - path: /api
+          pathType: Prefix
+          service:
+            name: cybersentinel-api
+            port: 8000
+  tls:
+    - secretName: cybersentinel-tls
+      hosts:
+        - cybersentinel.example.com
+
+# Persistent Storage Configuration
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  storageClass: "gp3"
+  annotations: {}
+
+# Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  labels: {}
+  annotations: {}
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Network Policies
+networkPolicy:
+  enabled: true
+  ingress:
+    enabled: true
+  egress:
+    enabled: true
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Pod Security Context
+podSecurityContext:
+  enabled: true
+  fsGroup: 1000
+
+# Init Containers
+initContainers:
+  - name: wait-for-db
+    image: busybox:1.35
+    command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done;']
+  - name: wait-for-redis
+    image: busybox:1.35
+    command: ['sh', '-c', 'until nc -z redis-master 6379; do echo waiting for redis; sleep 2; done;']
+
+# Dependency Services Configuration
+clickhouse:
+  enabled: false  # Use external managed service
+  external:
+    host: "external-clickhouse.aws.com"
+    port: 8123
+    database: "cybersentinel"
+
+neo4j:
+  enabled: false  # Use external managed service
+  external:
+    host: "external-neo4j.aws.com"
+    port: 7687
+    database: "neo4j"
+
+redis:
+  enabled: false  # Use external ElastiCache
+  external:
+    host: "external-redis.aws.com"
+    port: 6379
+
+nats:
+  enabled: true
+  nats:
+    jetstream:
+      enabled: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# External Secrets Configuration
+externalSecrets:
+  enabled: true
+  secretStore:
+    provider: aws
+    region: us-west-2
+    role: ""
+
+# Backup Configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: "7d"
+  storage:
+    type: s3
+    bucket: ""
+    region: us-west-2
+
+# Monitoring and Observability
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true
+  loki:
+    enabled: true
+  tempo:
+    enabled: true
+
+# Resource Quotas
+resourceQuota:
+  enabled: true
+  hard:
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "20"
+    limits.memory: "40Gi"
+    persistentvolumeclaims: "10"
+
+# Limit Ranges
+limitRange:
+  enabled: true
+  limits:
+    - default:
+        cpu: "500m"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+      type: Container

@@ -1,0 +1,64 @@
+syntax = "proto3";
+package cybersentinel;
+
+message Time {
+  int64 unix_ms = 1;
+}
+
+message EntityRef {
+  string type = 1;   // host|user|proc|file|ip|domain|ttp
+  string id = 2;     // stable id (hostname, pid@host, sha256, ip, ATT&CK id)
+}
+
+message HostTelemetry {
+  Time ts = 1;
+  string host = 2;
+  string source = 3; // zeek|suricata|osquery|falco|wazuh
+  string ecs_json = 4; // normalized ECS JSON (stringified)
+}
+
+message Alert {
+  Time ts = 1;
+  string id = 2;
+  string severity = 3;
+  repeated EntityRef entities = 4;
+  repeated string tags = 5; // ATT&CK technique ids, IOCs
+  string summary = 6;
+  string evidence_ref = 7; // storage pointer
+}
+
+message Finding {
+  Time ts = 1;
+  string id = 2;
+  string hypothesis = 3; // human readable
+  repeated EntityRef graph_nodes = 4;
+  repeated string candidate_ttps = 5;
+  string rationale_json = 6;
+}
+
+message ActionPlan {
+  Time ts = 1;
+  string incident_id = 2;
+  repeated string playbooks = 3; // ids
+  string change_set_json = 4;    // dry-run diff
+  string risk_tier = 5;          // low|med|high
+}
+
+message PlaybookRun {
+  Time ts = 1;
+  string playbook_id = 2;
+  string status = 3; // dry-run|approved|executed|rolled_back|failed
+  string logs = 4;
+}
+
+message IncidentFrame {
+  Time ts = 1;
+  string incident_id = 2;
+  oneof payload {
+    HostTelemetry telemetry = 3;
+    Alert alert = 4;
+    Finding finding = 5;
+    ActionPlan plan = 6;
+    PlaybookRun run = 7;
+  }
+}
