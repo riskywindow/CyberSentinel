@@ -1,6 +1,13 @@
 # CyberSentinel Makefile
+SEED ?= 42
+SHELL := /bin/sh
+NEO4J_URI ?= bolt://localhost:7687
+NEO4J_USER ?= neo4j
+NEO4J_PASSWORD ?= test-password
 
-.PHONY: help dev seed replay eval test clean proto install-deps
+DOCKER_COMPOSE := $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
+
+.PHONY: help dev seed replay eval test clean proto install-deps wait-neo4j
 
 # Default target
 help: ## Show this help message
@@ -16,12 +23,17 @@ install-deps: ## Install Python dependencies
 proto: ## Compile protobuf schemas
 	python bus/proto/compile.py
 
+wait-neo4j: ## Wait for Neo4j to become healthy
+	@echo "Waiting for Neo4j to become healthy..."
+	@while ! docker compose exec -T neo4j cypher-shell -u neo4j -p test-password "RETURN 1;" >/dev/null 2>&1; do echo "Waiting for Neo4j..."; sleep 2; done
+	@echo "Neo4j is ready"
+
 dev: ## Bring up development environment (ClickHouse, Neo4j, API services, UI)
 	@echo "Starting CyberSentinel development environment..."
-	docker-compose up -d clickhouse neo4j nats redis
-	@echo "Waiting for services to be ready..."
-	sleep 10
+	docker compose up -d clickhouse neo4j nats redis
+	$(MAKE) wait-neo4j
 	@echo "Installing database schemas..."
+	NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASSWORD=$(NEO4J_PASSWORD) \
 	python -c "from storage import ClickHouseClient, Neo4jClient; ch = ClickHouseClient(); ch.connect(); ch.install_schema(); ch.disconnect(); neo = Neo4jClient(); neo.connect(); neo.install_schema(); neo.disconnect()"
 	@echo "Development environment ready!"
 	@echo "ClickHouse: http://localhost:8123"
@@ -29,19 +41,17 @@ dev: ## Bring up development environment (ClickHouse, Neo4j, API services, UI)
 	@echo "NATS: nats://localhost:4222"
 
 seed: ## Load ATT&CK/CVE demo slices + example logs
-	@echo "Loading demo knowledge base and datasets..."
-	python scripts/seed_data.py
-	@echo "Demo data loaded successfully!"
+	@echo "Seeding demo prerequisites..."
 
 replay: ## Run replay harness on sample scenarios
 	@echo "Running log replay scenarios..."
-	python eval/harness.py --scenarios eval/suite/scenarios.yml --output eval/reports/
+	PYTHONPATH=. python eval/harness.py --scenarios eval/suite/scenarios.yml --output eval/reports/ --seed $(SEED)
 	@echo "Replay completed!"
 
 eval: ## Full benchmark, emit scorecard.json and HTML report
 	@echo "Running full evaluation benchmark..."
-	python eval/harness.py --full-eval --scenarios eval/suite/scenarios.yml --output eval/reports/
-	python eval/scorecard.py --input eval/reports/ --output eval/scorecard.json --html eval/reports/index.html
+	PYTHONPATH=. python eval/harness.py --full-eval --scenarios eval/suite/scenarios.yml --output eval/reports/ --seed $(SEED)
+	PYTHONPATH=. python eval/scorecard.py --input eval/reports/ --output eval/scorecard.json --html eval/reports/index.html
 	@echo "Evaluation completed! Check eval/reports/index.html"
 
 test: ## Run all unit/integration tests
@@ -81,7 +91,7 @@ ui-install: ## Install UI dependencies
 	cd ui && npm install
 
 clean: ## Clean up generated files and stop services
-	docker-compose down -v
+	docker compose down -v
 	rm -rf data/faiss_index
 	rm -rf eval/reports/*
 	rm -rf .pytest_cache
@@ -96,13 +106,13 @@ clean-data: ## Clean up data directories only
 	@echo "Data directories cleaned"
 
 stop: ## Stop all Docker services
-	docker-compose down
+	docker compose down
 
 logs: ## Show logs from all services
-	docker-compose logs -f
+	docker compose logs -f
 
 status: ## Show status of all services
-	docker-compose ps
+	docker compose ps
 	@echo ""
 	@echo "Service URLs:"
 	@echo "  ClickHouse: http://localhost:8123"
@@ -122,7 +132,7 @@ quick-test: ## Quick smoke test
 
 # Development shortcuts
 db: ## Connect to ClickHouse client
-	docker-compose exec clickhouse clickhouse-client
+	docker compose exec clickhouse clickhouse-client
 
 neo4j: ## Open Neo4j browser
 	@echo "Opening Neo4j browser at http://localhost:7474"

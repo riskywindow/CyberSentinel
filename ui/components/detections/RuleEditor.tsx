@@ -7,6 +7,7 @@ import {
   XMarkIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
+import { DEMO_FLAGS } from '@/lib/flags'
 
 interface RuleEditorProps {
   ruleId: string | null
@@ -54,7 +55,34 @@ status: stable`
   }
 }
 
-const defaultRule = {
+const defaultRule = DEMO_FLAGS.seedShowcaseRule ? {
+  title: 'SSH key lateral movement to privileged host',
+  description: 'Detects unusual SSH key authentication patterns that may indicate lateral movement',
+  category: 'Lateral Movement',
+  severity: 'high',
+  status: 'draft',
+  tags: ['ssh', 'lateral-movement', 'T1021.004'],
+  ymlContent: `title: SSH key lateral movement to privileged host
+id: sigma-ssh-lateral-movement
+description: Detects unusual SSH key authentication patterns that may indicate lateral movement
+author: Analyst Agent
+date: ${new Date().toISOString().split('T')[0].replace(/-/g, '/')}
+tags:
+  - attack.lateral_movement
+  - attack.t1021.004
+logsource:
+  category: auth
+  product: linux
+detection:
+  selection:
+    ssh.auth.method: "publickey"
+    ssh.auth.success: true
+    dest.role: "db" or "app"
+  condition: selection
+falsepositives:
+  - Legitimate administrative access
+level: high`
+} : {
   title: '',
   description: '',
   category: 'Other',

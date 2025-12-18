@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(make:*)",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(chmod:*)",
+      "Bash(pip install:*)",
+      "Bash(docker compose:*)",
+      "Bash(curl:*)",
+      "Bash(rm:*)",
+      "Bash(docker:*)",
+      "Bash(brew:*)",
+      "Bash(npx playwright test:*)",
+      "Bash(PYTHONPATH=. python eval/harness.py --scenarios eval/suite/scenarios.yml --output eval/reports/ --seed 42)",
+      "Bash(PYTHONPATH=. python eval/harness.py --scenarios eval/suite/scenarios.yml --output eval/reports/ --seed 123)",
+      "Bash(PYTHONPATH=. python eval/harness.py --scenarios eval/suite/scenarios.yml --output eval/reports/ --seed 999)"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "acceptEdits"
+  }
+}

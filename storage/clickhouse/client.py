@@ -31,6 +31,24 @@ class ClickHouseClient:
         if clickhouse_connect is None:
             raise ImportError("clickhouse-connect not installed. Run: pip install clickhouse-connect")
         
+        # First connect to default database to create our database if needed
+        default_client = clickhouse_connect.get_client(
+            host=self.host,
+            port=self.port,
+            database="default",
+            username=self.username,
+            password=self.password
+        )
+        
+        # Create database if it doesn't exist
+        try:
+            default_client.command(f"CREATE DATABASE IF NOT EXISTS {self.database}")
+        except Exception as e:
+            logger.warning(f"Could not create database {self.database}: {e}")
+        finally:
+            default_client.close()
+        
+        # Now connect to our target database
         self.client = clickhouse_connect.get_client(
             host=self.host,
             port=self.port,
@@ -38,19 +56,6 @@ class ClickHouseClient:
             username=self.username,
             password=self.password
         )
-        
-        # Create database if it doesn't exist
-        try:
-            self.client.command(f"CREATE DATABASE IF NOT EXISTS {self.database}")
-            self.client = clickhouse_connect.get_client(
-                host=self.host,
-                port=self.port,
-                database=self.database,
-                username=self.username,
-                password=self.password
-            )
-        except Exception as e:
-            logger.warning(f"Could not create database {self.database}: {e}")
         
         logger.info(f"Connected to ClickHouse at {self.host}:{self.port}/{self.database}")
     

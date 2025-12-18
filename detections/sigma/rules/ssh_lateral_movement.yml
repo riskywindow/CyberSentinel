@@ -1,0 +1,19 @@
+title: Detect Ssh Key Lateral Movement To Privileged Host
+id: 8a901164-9db8-45ab-99fe-42766dfb9510
+status: experimental
+description: Detects detect ssh key lateral movement to privileged host based on observed
+  patterns
+author: CyberSentinel
+date: 2025/12/18
+tags: []
+logsource:
+  category: network
+  product: linux
+detection:
+  selection: {}
+  condition: selection
+level: medium
+falsepositives:
+- Legitimate administrative activity
+- Automated tools and scripts
+references: []

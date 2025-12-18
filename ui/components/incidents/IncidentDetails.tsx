@@ -13,6 +13,8 @@ import {
   ChevronRightIcon
 } from '@heroicons/react/24/outline'
 import { formatDistanceToNow, format } from 'date-fns'
+import { DEMO_FLAGS } from '@/lib/flags'
+import { Badge } from '@/components/ui/badge'
 
 interface IncidentDetailsProps {
   incidentId: string | null
@@ -72,7 +74,15 @@ const mockIncidentDetails = {
       { type: 'Log', name: 'auth.log', size: '2.4 KB', timestamp: '2024-01-15T14:30:00Z' },
       { type: 'Network Flow', name: 'ssh_connections.pcap', size: '156 KB', timestamp: '2024-01-15T14:30:00Z' },
       { type: 'Process Tree', name: 'process_dump.json', size: '8.2 KB', timestamp: '2024-01-15T14:32:00Z' }
-    ]
+    ],
+    actionPlan: {
+      id: 'plan-001',
+      playbooks: ['isolate_host', 'disable_ssh', 'collect_forensic_evidence'],
+      riskTier: 'high',
+      requiresApproval: true,
+      estimatedDuration: 45,
+      reversible: true
+    }
   }
 }
 
@@ -96,7 +106,8 @@ export default function IncidentDetails({ incidentId }: IncidentDetailsProps) {
     overview: true,
     timeline: true,
     entities: false,
-    artifacts: false
+    artifacts: false,
+    actionPlan: true
   })
 
   if (!incidentId) {
@@ -235,44 +246,47 @@ export default function IncidentDetails({ incidentId }: IncidentDetailsProps) {
             )}
           </button>
           
-          {expandedSections.timeline && (
+{expandedSections.timeline && (
             <div className="p-3 pt-0">
               <div className="space-y-3">
-                {incident.timeline.map((event, index) => (
-                  <div key={event.id} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className={`w-3 h-3 rounded-full ${
-                        event.type === 'alert' ? 'bg-red-500' :
-                        event.type === 'finding' ? 'bg-yellow-500' :
-                        'bg-blue-500'
-                      }`} />
-                      {index < incident.timeline.length - 1 && (
-                        <div className="w-px h-8 bg-slate-600 mt-2" />
-                      )}
-                    </div>
-                    <div className="flex-1 pb-4">
-                      <div className="flex items-center justify-between mb-1">
-                        <h4 className="text-white font-medium text-sm">{event.title}</h4>
-                        <span className="text-slate-400 text-xs">
-                          {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
-                        </span>
-                      </div>
-                      <p className="text-slate-300 text-sm mb-2">{event.description}</p>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-slate-400">Source:</span>
-                        <span className="text-slate-300">{event.source}</span>
-                        {event.status && (
-                          <>
-                            <span className="text-slate-400">Status:</span>
-                            <span className="px-2 py-1 bg-yellow-500/10 text-yellow-400 rounded">
-                              {event.status}
-                            </span>
-                          </>
+                {incident.timeline.map((event, index) => {
+                  const clickable = DEMO_FLAGS.emphasizeTimelineClicks ? 'cursor-pointer hover:bg-slate-700/50 transition-colors' : ''
+                  return (
+                    <div key={event.id} className={`flex gap-3 p-2 rounded ${clickable}`}>
+                      <div className="flex flex-col items-center">
+                        <div className={`w-3 h-3 rounded-full ${
+                          event.type === 'alert' ? 'bg-red-500' :
+                          event.type === 'finding' ? 'bg-yellow-500' :
+                          'bg-blue-500'
+                        }`} />
+                        {index < incident.timeline.length - 1 && (
+                          <div className="w-px h-8 bg-slate-600 mt-2" />
                         )}
                       </div>
+                      <div className="flex-1 pb-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="text-white font-medium text-sm">{event.title}</h4>
+                          <span className="text-slate-400 text-xs">
+                            {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
+                          </span>
+                        </div>
+                        <p className="text-slate-300 text-sm mb-2">{event.description}</p>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-slate-400">Source:</span>
+                          <span className="text-slate-300">{event.source}</span>
+                          {event.status && (
+                            <>
+                              <span className="text-slate-400">Status:</span>
+                              <span className="px-2 py-1 bg-yellow-500/10 text-yellow-400 rounded">
+                                {event.status}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -341,6 +355,66 @@ export default function IncidentDetails({ incidentId }: IncidentDetailsProps) {
                     </button>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Action Plan Section */}
+        <div className="border border-slate-700 rounded-lg">
+          <button
+            onClick={() => toggleSection('actionPlan')}
+            className="w-full flex items-center justify-between p-3 text-left hover:bg-slate-700/50"
+          >
+            <span className="font-medium text-white">Action Plan</span>
+            {expandedSections.actionPlan ? (
+              <ChevronDownIcon className="h-4 w-4 text-slate-400" />
+            ) : (
+              <ChevronRightIcon className="h-4 w-4 text-slate-400" />
+            )}
+          </button>
+          
+          {expandedSections.actionPlan && incident.actionPlan && (
+            <div className="p-3 pt-0">
+              {(DEMO_FLAGS.forceHighRiskApprovalBanner || incident.actionPlan?.requiresApproval || incident.actionPlan?.riskTier === 'high') && (
+                <div className="mb-3 flex items-center gap-2">
+                  <Badge variant="outline">Requires Approval</Badge>
+                  <span className="text-xs text-slate-400">High risk playbook. Approval is required before execution.</span>
+                </div>
+              )}
+              
+              <div className="space-y-3">
+                <div>
+                  <span className="text-slate-400 text-sm">Selected Playbooks:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {incident.actionPlan.playbooks.map((playbook) => (
+                      <span
+                        key={playbook}
+                        className="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded"
+                      >
+                        {playbook.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-slate-400">Risk Tier:</span>
+                    <div className={`text-white ${incident.actionPlan.riskTier === 'high' ? 'text-red-400' : 'text-yellow-400'}`}>
+                      {incident.actionPlan.riskTier?.toUpperCase()}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Est. Duration:</span>
+                    <div className="text-white">{incident.actionPlan.estimatedDuration} min</div>
+                  </div>
+                </div>
+                
+                <div className="mt-2 text-xs text-slate-400">
+                  <span className="mr-2">Dry-run ready</span>
+                  <span>Revert supported</span>
+                </div>
               </div>
             </div>
           )}

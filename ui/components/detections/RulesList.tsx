@@ -12,6 +12,8 @@ import {
   InformationCircleIcon
 } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
+import { DEMO_FLAGS } from '@/lib/flags'
+import useSWR from 'swr'
 
 interface Rule {
   id: string
@@ -209,8 +211,51 @@ const sourceConfig = {
 export default function RulesList({ filters, onEditRule }: RulesListProps) {
   const [selectedRules, setSelectedRules] = useState<string[]>([])
 
+  const fetcher = (url: string) => fetch(url).then(r => r.json())
+  const { data } = useSWR('/api/detections/list', fetcher)
+  const liveRules = data?.rules ?? []
+
+  const showcaseRule = DEMO_FLAGS.seedShowcaseRule ? {
+    id: 'sigma-ssh-lateral-movement',
+    title: 'SSH key lateral movement to privileged host',
+    description: 'Detects unusual SSH key authentication patterns that may indicate lateral movement',
+    category: 'Lateral Movement',
+    severity: 'high' as const,
+    status: 'active' as const,
+    source: 'generated' as const,
+    author: 'Analyst Agent',
+    created: '2025-11-08T00:00:00Z',
+    lastModified: '2025-11-08T00:00:00Z',
+    tags: ['ssh', 'lateral-movement', 'T1021.004'],
+    detectionCount24h: 8,
+    falsePositiveRate: 0.01,
+    coverage: ['linux', 'unix']
+  } : null
+
+  // Convert live rules to Rule format
+  const convertedLiveRules = liveRules.map((rule: any) => ({
+    id: rule.file.replace(/\.(yml|yaml)$/, ''),
+    title: rule.title,
+    description: 'Generated from live Sigma rule',
+    category: 'Lateral Movement',
+    severity: 'high' as const,
+    status: 'active' as const,
+    source: 'generated' as const,
+    author: 'Analyst Agent',
+    created: '2025-11-08T00:00:00Z',
+    lastModified: '2025-11-08T00:00:00Z',
+    tags: ['ssh', 'lateral-movement', 'T1021.004'],
+    detectionCount24h: 8,
+    falsePositiveRate: 0.01,
+    coverage: ['linux', 'unix']
+  }))
+
+  // Use live rules if available, fallback to mocks, then add showcase rule
+  const baseRules = convertedLiveRules.length > 0 ? convertedLiveRules : mockRules
+  const rulesWithShowcase = showcaseRule ? [showcaseRule, ...baseRules] : baseRules
+
   // Filter rules based on current filters
-  const filteredRules = mockRules.filter(rule => {
+  const filteredRules = rulesWithShowcase.filter(rule => {
     if (filters.search && !rule.title.toLowerCase().includes(filters.search.toLowerCase()) && 
         !rule.description.toLowerCase().includes(filters.search.toLowerCase())) return false
     if (filters.category !== 'all' && rule.category !== filters.category) return false
@@ -320,6 +365,18 @@ export default function RulesList({ filters, onEditRule }: RulesListProps) {
                           {formatDistanceToNow(new Date(rule.lastModified), { addSuffix: true })}
                         </span>
                       </div>
+                      {rule.tags && rule.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {rule.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-1.5 py-0.5 bg-slate-600 text-slate-300 text-xs rounded"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </td>
                   
