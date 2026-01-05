@@ -1,0 +1,198 @@
+{{- if .Values.agents.analyst.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-analyst
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyst
+spec:
+  replicas: {{ .Values.agents.analyst.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: analyst
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "cybersentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: analyst
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cybersentinel.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-message-bus
+          image: busybox:1.35
+          command: ['sh', '-c', 'until nc -z {{ include "cybersentinel.natsHost" . }} {{ .Values.nats.port | default "4222" }}; do echo waiting for NATS; sleep 2; done;']
+        - name: wait-for-scout
+          image: busybox:1.35
+          command: ['sh', '-c', 'until nc -z {{ include "cybersentinel.fullname" . }}-scout 8001; do echo waiting for Scout agent; sleep 2; done;']
+        - name: wait-for-vector-db
+          image: busybox:1.35
+          command: ['sh', '-c', 'echo "Preparing vector database environment..."; mkdir -p /app/data/faiss_index && echo "Vector DB ready"']
+      containers:
+        - name: analyst
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.agents.analyst.image.repository }}:{{ .Values.agents.analyst.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.agents.analyst.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8002
+              protocol: TCP
+            - name: metrics
+              containerPort: 9002
+              protocol: TCP
+          env:
+            {{- include "cybersentinel.commonEnv" . | nindent 12 }}
+            - name: AGENT_TYPE
+              value: "analyst"
+            - name: AGENT_PORT
+              value: "8002"
+            - name: METRICS_PORT
+              value: "9002"
+            - name: LOG_LEVEL
+              value: {{ .Values.app.logLevel | default "INFO" | quote }}
+            # Message bus configuration
+            - name: NATS_URL
+              value: "nats://{{ include "cybersentinel.natsHost" . }}:{{ .Values.nats.port | default "4222" }}"
+            # Scout agent integration
+            - name: SCOUT_AGENT_URL
+              value: "http://{{ include "cybersentinel.fullname" . }}-scout:8001"
+            # Vector database configuration
+            - name: VECTOR_DB_PATH
+              value: "/app/data/vector_db"
+            - name: FAISS_INDEX_PATH
+              value: "/app/data/faiss_index"
+            - name: RAG_EMBEDDINGS_PATH
+              value: "/app/data/embeddings"
+            # ML/AI configuration
+            - name: ML_MODEL_PATH
+              value: "/app/models"
+            - name: HYPOTHESIS_CONFIDENCE_THRESHOLD
+              value: {{ .Values.agents.analyst.confidenceThreshold | default "0.7" | quote }}
+            - name: MAX_HYPOTHESIS_ENTITIES
+              value: {{ .Values.agents.analyst.maxHypothesisEntities | default "50" | quote }}
+            # Sigma rule generation
+            - name: SIGMA_RULES_PATH
+              value: "/app/sigma_rules"
+            - name: SIGMA_VALIDATION_ENABLED
+              value: {{ .Values.agents.analyst.sigmaValidation | default "true" | quote }}
+            # ClickHouse for event analysis
+            - name: CLICKHOUSE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-config
+                  key: clickhouse_host
+            - name: CLICKHOUSE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-config
+                  key: clickhouse_port
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-db-secrets
+                  key: CLICKHOUSE_PASSWORD
+            # Neo4j for entity relationship analysis
+            - name: NEO4J_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-config
+                  key: neo4j_host
+            - name: NEO4J_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-config
+                  key: neo4j_port
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-db-secrets
+                  key: NEO4J_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agents.analyst.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: models
+              mountPath: /app/models
+            - name: sigma-rules
+              mountPath: /app/sigma_rules
+            - name: logs
+              mountPath: /app/logs
+            - name: vector-db
+              mountPath: /app/data/vector_db
+            - name: faiss-index
+              mountPath: /app/data/faiss_index
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "cybersentinel.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: models
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: sigma-rules
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: logs
+          emptyDir: {}
+        - name: vector-db
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: faiss-index
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "cybersentinel.fullname" . }}-faiss-index
+          {{- else }}
+          emptyDir:
+            sizeLimit: 5Gi
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+      {{- with .Values.agents.analyst.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agents.analyst.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agents.analyst.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

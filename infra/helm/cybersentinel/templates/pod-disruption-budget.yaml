@@ -1,0 +1,178 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+---
+# API Service Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-api
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  {{- if .Values.api.autoscaling.enabled }}
+  {{- if gt (.Values.api.autoscaling.minReplicas | int) 1 }}
+  minAvailable: {{ .Values.podDisruptionBudget.api.minAvailable | default "50%" }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  {{- else }}
+  {{- if gt (.Values.api.replicaCount | int) 1 }}
+  minAvailable: {{ .Values.podDisruptionBudget.api.minAvailable | default "50%" }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  {{- end }}
+---
+# UI Service Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-ui
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ui
+  {{- if .Values.ui.autoscaling.enabled }}
+  {{- if gt (.Values.ui.autoscaling.minReplicas | int) 1 }}
+  minAvailable: {{ .Values.podDisruptionBudget.ui.minAvailable | default "50%" }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  {{- else }}
+  {{- if gt (.Values.ui.replicaCount | int) 1 }}
+  minAvailable: {{ .Values.podDisruptionBudget.ui.minAvailable | default "50%" }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  {{- end }}
+---
+# Scout Agent Pod Disruption Budget
+{{- if and .Values.agents.scout.enabled .Values.agents.scout.autoscaling.enabled }}
+{{- if gt (.Values.agents.scout.autoscaling.minReplicas | int) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-scout
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scout
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scout
+  minAvailable: {{ .Values.podDisruptionBudget.scout.minAvailable | default "50%" }}
+{{- end }}
+{{- else if and .Values.agents.scout.enabled (gt (.Values.agents.scout.replicaCount | int) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-scout
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scout
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scout
+  minAvailable: {{ .Values.podDisruptionBudget.scout.minAvailable | default "50%" }}
+{{- end }}
+---
+# Analyst Agent Pod Disruption Budget
+{{- if and .Values.agents.analyst.enabled .Values.agents.analyst.autoscaling.enabled }}
+{{- if gt (.Values.agents.analyst.autoscaling.minReplicas | int) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-analyst
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyst
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: analyst
+  # More conservative for ML workloads
+  minAvailable: {{ .Values.podDisruptionBudget.analyst.minAvailable | default "67%" }}
+{{- end }}
+{{- else if and .Values.agents.analyst.enabled (gt (.Values.agents.analyst.replicaCount | int) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-analyst
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyst
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: analyst
+  # More conservative for ML workloads
+  minAvailable: {{ .Values.podDisruptionBudget.analyst.minAvailable | default "67%" }}
+{{- end }}
+---
+# Responder Agent Pod Disruption Budget (Critical Service)
+{{- if .Values.agents.responder.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-responder
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: responder
+  # Critical service - always maintain at least one instance
+  minAvailable: {{ .Values.podDisruptionBudget.responder.minAvailable | default 1 }}
+{{- end }}
+
+{{- if and .Values.redteam.enabled (gt (.Values.redteam.replicaCount | int) 1) }}
+---
+# Red Team Simulator Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-redteam
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redteam
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redteam
+  minAvailable: {{ .Values.podDisruptionBudget.redteam.minAvailable | default 1 }}
+{{- end }}
+
+{{- if and .Values.evaluation.enabled (eq .Values.evaluation.deploymentType "deployment") (gt (.Values.evaluation.replicaCount | int) 1) }}
+---
+# Evaluation Harness Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-evaluation
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: evaluation
+  minAvailable: {{ .Values.podDisruptionBudget.evaluation.minAvailable | default 1 }}
+{{- end }}
+{{- end }}

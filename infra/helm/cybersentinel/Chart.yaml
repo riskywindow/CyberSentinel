@@ -18,20 +18,21 @@ keywords:
   - incident-response
 annotations:
   category: Security
-dependencies:
-  - name: clickhouse
-    version: "4.1.0"
-    repository: https://charts.bitnami.com/bitnami
-    condition: clickhouse.enabled
-  - name: neo4j
-    version: "5.11.0"
-    repository: https://helm.neo4j.com/neo4j
-    condition: neo4j.enabled
-  - name: redis
-    version: "18.1.4"
-    repository: https://charts.bitnami.com/bitnami
-    condition: redis.enabled
-  - name: nats
-    version: "0.19.14"
-    repository: https://nats-io.github.io/k8s/helm/charts/
-    condition: nats.enabled
+# Dependencies commented out for testing - use external managed services
+# dependencies:
+#   - name: clickhouse
+#     version: "4.1.0"
+#     repository: https://charts.bitnami.com/bitnami
+#     condition: clickhouse.enabled
+#   - name: neo4j
+#     version: "5.11.0"
+#     repository: https://helm.neo4j.com/neo4j
+#     condition: neo4j.enabled
+#   - name: redis
+#     version: "18.1.4"
+#     repository: https://charts.bitnami.com/bitnami
+#     condition: redis.enabled
+#   - name: nats
+#     version: "0.19.14"
+#     repository: https://nats-io.github.io/k8s/helm/charts/
+#     condition: nats.enabled

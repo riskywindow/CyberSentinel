@@ -1,0 +1,50 @@
+{{- if and .Values.evaluation.enabled (eq .Values.evaluation.deploymentType "deployment") .Values.evaluation.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-evaluation
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "cybersentinel.fullname" . }}-evaluation
+  minReplicas: {{ .Values.evaluation.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.evaluation.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.evaluation.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.evaluation.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.evaluation.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.evaluation.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.evaluation.autoscaling.scaleDownStabilizationWindowSeconds | default 300 }}
+      policies:
+      - type: Percent
+        value: {{ .Values.evaluation.autoscaling.scaleDownPercent | default 50 }}
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.evaluation.autoscaling.scaleUpStabilizationWindowSeconds | default 60 }}
+      policies:
+      - type: Percent
+        value: {{ .Values.evaluation.autoscaling.scaleUpPercent | default 100 }}
+        periodSeconds: 30
+      - type: Pods
+        value: {{ .Values.evaluation.autoscaling.scaleUpPods | default 1 }}
+        periodSeconds: 30
+      selectPolicy: Max
+{{- end }}

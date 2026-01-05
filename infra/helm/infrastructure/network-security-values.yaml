@@ -1,0 +1,473 @@
+# CyberSentinel Network Security Configuration
+# This configures enhanced network security features for EKS
+
+# Global configuration
+global:
+  # AWS account ID
+  awsAccountId: ""
+  # AWS region
+  region: "us-west-2"
+  # Environment name (dev, staging, prod)
+  environment: ""
+  # Project name
+  projectName: "cybersentinel"
+  # EKS cluster name
+  clusterName: ""
+
+# Pod Security Standards Configuration
+podSecurityStandards:
+  # Enable Pod Security Standards
+  enabled: true
+  
+  # Pod Security admission controller configuration
+  admission:
+    # Enforcement levels: enforced, audit, warn
+    mode: "enforced"
+    version: "v1.28"
+    
+    # Pod Security Standards profile levels:
+    # - privileged: Unrestricted policy (no restrictions)
+    # - baseline: Minimally restrictive policy (prevents known privilege escalations)
+    # - restricted: Heavily restricted policy (follows current Pod hardening best practices)
+    profile: "restricted"
+    
+    # Namespace labels for Pod Security Standards
+    namespaceLabels:
+      # Application namespace (cybersentinel)
+      application:
+        enforce: "restricted"
+        audit: "restricted"
+        warn: "restricted"
+      
+      # Infrastructure namespaces
+      infrastructure:
+        enforce: "baseline"
+        audit: "restricted"
+        warn: "restricted"
+      
+      # Monitoring namespace
+      monitoring:
+        enforce: "baseline"
+        audit: "restricted"
+        warn: "restricted"
+      
+      # System namespaces (kube-system, etc.)
+      system:
+        enforce: "privileged"
+        audit: "baseline"
+        warn: "baseline"
+
+# Network Policy Configuration (Enhanced)
+networkPolicy:
+  # Enable advanced NetworkPolicy features
+  enabled: true
+  
+  # Default deny policies
+  defaultDeny:
+    enabled: true
+    # Apply to ingress, egress, or both
+    types: ["ingress", "egress"]
+  
+  # DNS policies
+  dns:
+    enabled: true
+    # Allow DNS resolution
+    allowCoreDNS: true
+    allowClusterDNS: true
+    # Custom DNS servers
+    customDNS:
+      - "8.8.8.8"
+      - "8.8.4.4"
+  
+  # Internet egress policies
+  internetEgress:
+    # Enable controlled internet access
+    enabled: true
+    # Allowed protocols for internet access
+    allowedPorts:
+      - protocol: TCP
+        port: 443  # HTTPS
+      - protocol: TCP
+        port: 80   # HTTP
+    
+    # Restrict egress to specific domains/IPs
+    allowedDestinations:
+      # AWS services
+      - cidr: "0.0.0.0/0"  # Allow all for AWS SDK access
+        ports: [443, 80]
+        description: "AWS API access"
+      
+      # External service integrations
+      - cidr: "0.0.0.0/0"  # OpenAI, Slack, etc.
+        ports: [443]
+        description: "External service integrations"
+    
+    # Block specific destinations
+    blockedDestinations:
+      - cidr: "169.254.169.254/32"  # AWS metadata service (additional layer)
+        description: "Block direct metadata access"
+  
+  # Service mesh policies
+  serviceMesh:
+    enabled: false
+    # Istio/Linkerd configuration would go here
+    provider: "istio"
+  
+  # Zero trust networking
+  zeroTrust:
+    enabled: true
+    # Default deny all, explicit allow
+    defaultDeny: true
+    # Require mTLS for service-to-service communication
+    requireMTLS: true
+
+# Calico Network Policies (if using Calico CNI)
+calico:
+  enabled: false  # Set to true if using Calico instead of AWS VPC CNI
+  
+  # Global network policies
+  globalPolicies:
+    # Block suspicious traffic patterns
+    blockMaliciousTraffic:
+      enabled: true
+      rules:
+        # Block traffic to suspicious ports
+        - action: Deny
+          protocol: TCP
+          ports: [22, 23, 3389, 5900, 5901]
+          description: "Block SSH, Telnet, RDP, VNC"
+        
+        # Block common attack vectors
+        - action: Deny
+          protocol: TCP
+          ports: [1433, 3306, 5432, 27017]
+          description: "Block database ports from internet"
+    
+    # DDoS protection
+    ddosProtection:
+      enabled: true
+      # Rate limiting rules
+      rateLimits:
+        - source: "0.0.0.0/0"
+          limit: "100/s"
+          description: "Global rate limit"
+    
+    # Threat intelligence integration
+    threatIntelligence:
+      enabled: true
+      # Block known bad IP ranges
+      blocklists:
+        - name: "tor-exit-nodes"
+          enabled: true
+        - name: "known-botnets"
+          enabled: true
+
+# AWS WAF Configuration (for ALB ingress)
+awsWAF:
+  # Enable AWS WAF for ingress protection
+  enabled: true
+  
+  # WAF configuration
+  webACL:
+    name: "cybersentinel-waf"
+    description: "WAF for CyberSentinel application"
+    scope: "REGIONAL"  # For ALB
+    
+    # Default action for requests that don't match any rules
+    defaultAction: "ALLOW"
+    
+    # Managed rule groups
+    managedRuleGroups:
+      # AWS Core Rule Set
+      - name: "AWSManagedRulesCoreCoreRuleSet"
+        priority: 10
+        overrideAction: "NONE"
+        enabled: true
+        
+      # Known Bad Inputs
+      - name: "AWSManagedRulesKnownBadInputsRuleSet"
+        priority: 20
+        overrideAction: "NONE"
+        enabled: true
+        
+      # SQL Injection
+      - name: "AWSManagedRulesSQLiRuleSet"
+        priority: 30
+        overrideAction: "NONE"
+        enabled: true
+        
+      # Linux Operating System
+      - name: "AWSManagedRulesLinuxRuleSet"
+        priority: 40
+        overrideAction: "NONE"
+        enabled: true
+        
+      # IP Reputation
+      - name: "AWSManagedRulesAmazonIpReputationList"
+        priority: 50
+        overrideAction: "NONE"
+        enabled: true
+        
+      # Anonymous IP List
+      - name: "AWSManagedRulesAnonymousIpList"
+        priority: 60
+        overrideAction: "NONE"
+        enabled: true
+    
+    # Custom rules
+    customRules:
+      # Rate limiting
+      - name: "RateLimitRule"
+        priority: 100
+        action: "BLOCK"
+        statement:
+          rateBasedStatement:
+            limit: 2000  # requests per 5 minutes
+            aggregateKeyType: "IP"
+        enabled: true
+        
+      # Geo blocking (if required)
+      - name: "GeoBlockRule"
+        priority: 110
+        action: "BLOCK"
+        statement:
+          geoMatchStatement:
+            countryCodes: []  # Add country codes to block
+        enabled: false
+        
+      # API endpoint protection
+      - name: "APIProtectionRule"
+        priority: 120
+        action: "BLOCK"
+        statement:
+          andStatement:
+            statements:
+              - byteMatchStatement:
+                  searchString: "/api/admin"
+                  fieldToMatch:
+                    uriPath: {}
+                  textTransformations:
+                    - priority: 0
+                      type: "LOWERCASE"
+              - notStatement:
+                  statement:
+                    ipSetReferenceStatement:
+                      arn: ""  # Admin IP allowlist ARN
+        enabled: true
+  
+  # Logging configuration
+  logging:
+    enabled: true
+    destination: "aws-waf-logs-cybersentinel"
+    fields:
+      - "timestamp"
+      - "formatVersion"
+      - "webaclId"
+      - "terminatingRuleId"
+      - "terminatingRuleType"
+      - "action"
+      - "terminatingRuleMatchDetails"
+      - "httpSourceName"
+      - "httpSourceId"
+      - "ruleGroupList"
+      - "rateBasedRuleList"
+      - "nonTerminatingMatchingRules"
+      - "requestHeadersInserted"
+      - "responseCodeSent"
+      - "httpRequest"
+
+# Network monitoring and observability
+monitoring:
+  # Enable network monitoring
+  enabled: true
+  
+  # VPC Flow Logs
+  vpcFlowLogs:
+    enabled: true
+    destination: "CloudWatchLogs"
+    logFormat: "srcaddr dstaddr srcport dstport protocol start end action"
+    trafficType: "ALL"  # ACCEPT, REJECT, ALL
+    retention: 30  # days
+  
+  # Network performance monitoring
+  networkInsights:
+    enabled: true
+    # VPC Reachability Analyzer
+    reachabilityAnalysis: true
+    # Network performance analysis
+    performanceAnalysis: true
+  
+  # Prometheus metrics for network policies
+  prometheusMetrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: "monitoring"
+      interval: "30s"
+      path: "/metrics"
+  
+  # Grafana dashboards
+  grafanaDashboards:
+    enabled: true
+    dashboards:
+      - name: "network-security"
+        title: "Network Security Overview"
+      - name: "network-policies"
+        title: "NetworkPolicy Status"
+      - name: "waf-metrics"
+        title: "AWS WAF Metrics"
+
+# Security scanning and compliance
+security:
+  # Enable security scanning
+  enabled: true
+  
+  # Network security scanning
+  networkScanning:
+    # Scan for open ports
+    portScanning:
+      enabled: true
+      schedule: "0 2 * * 0"  # Weekly
+    
+    # Scan for misconfigurations
+    configScanning:
+      enabled: true
+      schedule: "0 3 * * *"  # Daily
+    
+    # Vulnerability scanning
+    vulnerabilityScanning:
+      enabled: true
+      schedule: "0 1 * * 0"  # Weekly
+  
+  # Compliance checks
+  compliance:
+    # CIS Kubernetes Benchmark
+    cisBenchmark:
+      enabled: true
+      version: "v1.6.1"
+    
+    # NIST Cybersecurity Framework
+    nistFramework:
+      enabled: true
+    
+    # PCI DSS (if applicable)
+    pciDss:
+      enabled: false
+    
+    # SOC 2
+    soc2:
+      enabled: true
+  
+  # Policy violations and alerts
+  alerts:
+    # Network policy violations
+    policyViolations:
+      enabled: true
+      severity: "warning"
+      destinations:
+        - "slack"
+        - "pagerduty"
+    
+    # Suspicious network activity
+    suspiciousActivity:
+      enabled: true
+      severity: "critical"
+      destinations:
+        - "slack"
+        - "pagerduty"
+        - "email"
+    
+    # WAF rule triggers
+    wafTriggers:
+      enabled: true
+      severity: "warning"
+      destinations:
+        - "slack"
+
+# Environment-specific configurations
+environments:
+  dev:
+    # Relaxed policies for development
+    networkPolicy:
+      defaultDeny:
+        enabled: false  # More permissive for development
+    podSecurityStandards:
+      admission:
+        profile: "baseline"  # Less restrictive
+    awsWAF:
+      enabled: false  # Disable WAF in dev
+    monitoring:
+      vpcFlowLogs:
+        retention: 7  # Shorter retention
+  
+  staging:
+    # Production-like but with monitoring focus
+    networkPolicy:
+      defaultDeny:
+        enabled: true
+    podSecurityStandards:
+      admission:
+        profile: "restricted"
+    awsWAF:
+      enabled: true
+    monitoring:
+      vpcFlowLogs:
+        retention: 14
+  
+  prod:
+    # Maximum security
+    networkPolicy:
+      defaultDeny:
+        enabled: true
+      zeroTrust:
+        enabled: true
+    podSecurityStandards:
+      admission:
+        profile: "restricted"
+    awsWAF:
+      enabled: true
+    monitoring:
+      vpcFlowLogs:
+        retention: 90  # Long retention for compliance
+    security:
+      networkScanning:
+        vulnerabilityScanning:
+          schedule: "0 1 * * *"  # Daily in production
+
+# Integration with existing components
+integration:
+  # External Secrets integration
+  externalSecrets:
+    enabled: true
+    # Network policies for External Secrets
+    networkPolicies:
+      enabled: true
+  
+  # Velero backup integration
+  velero:
+    enabled: true
+    # Network policies for backup operations
+    networkPolicies:
+      enabled: true
+  
+  # CloudWatch integration
+  cloudWatch:
+    enabled: true
+    # Enhanced logging for network events
+    enhancedLogging: true
+  
+  # Prometheus integration
+  prometheus:
+    enabled: true
+    # Network security metrics
+    networkMetrics: true
+
+# Additional labels and annotations
+extraLabels:
+  app.kubernetes.io/component: "network-security"
+  app.kubernetes.io/part-of: "cybersentinel"
+  security.cybersentinel.io/level: "enhanced"
+
+extraAnnotations:
+  network-security.cybersentinel.io/version: "v1.0"
+  network-security.cybersentinel.io/last-updated: ""

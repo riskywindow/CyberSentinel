@@ -1,0 +1,226 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-api
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  endpoints:
+  - port: http
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-ui
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ui
+  endpoints:
+  - port: http
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-scout
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scout
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scout
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+    - replacement: "scout"
+      targetLabel: component
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-analyst
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyst
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: analyst
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "15s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+    - replacement: "analyst"
+      targetLabel: component
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-responder
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: responder
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+    - replacement: "responder"
+      targetLabel: component
+{{- if .Values.redteam.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-redteam
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redteam
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redteam
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+    - replacement: "redteam"
+      targetLabel: component
+{{- end }}
+{{- if .Values.evaluation.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-evaluation
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: evaluation
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout | default "10s" }}
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'prometheus_.*'
+      action: drop
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_service_name]
+      targetLabel: service
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+    - sourceLabels: [__meta_kubernetes_pod_name]
+      targetLabel: instance
+    - replacement: "evaluation"
+      targetLabel: component
+{{- end }}
+{{- end }}

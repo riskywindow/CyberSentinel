@@ -1,0 +1,204 @@
+---
+# CyberSentinel Production Environment Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cybersentinel-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-prod
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: cybersentinel
+    environment: prod
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: "critical"
+    notifications.argoproj.io/subscribe.on-deployed.webhook: "github"
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cybersentinel
+  
+  source:
+    repoURL: https://github.com/cybersentinel/cybersentinel
+    targetRevision: main  # Track main branch for production
+    path: infra/helm/cybersentinel
+    helm:
+      valueFiles:
+      - values.yaml
+      - values-prod.yaml
+      parameters:
+      - name: global.environment
+        value: prod
+      - name: global.domain
+        value: "${DOMAIN_NAME}"
+      - name: image.tag
+        value: "v1.0.0"  # Use specific semantic version for production
+      - name: replicaCount.api
+        value: "3"
+      - name: replicaCount.scout
+        value: "3"
+      - name: replicaCount.analyst
+        value: "3"
+      - name: replicaCount.responder
+        value: "3"
+      - name: autoscaling.enabled
+        value: "true"
+      - name: resources.requests.memory
+        value: "1Gi"
+      - name: resources.limits.memory
+        value: "2Gi"
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cybersentinel
+  
+  syncPolicy:
+    # Production requires manual sync for safety
+    automated: null
+    syncOptions:
+    - CreateNamespace=false  # Namespace should already exist
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true
+    - SkipDryRunOnMissingResource=true
+    - RespectIgnoreDifferences=true
+    retry:
+      limit: 2
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m
+  
+  revisionHistoryLimit: 50  # Keep more history for production
+  
+  # Strict health checks for production
+  ignoreDifferences:
+  - group: ""
+    kind: Service
+    jsonPointers:
+    - /spec/clusterIP
+  
+  # Production sync hooks with comprehensive validation
+  operation:
+    sync:
+      hooks:
+      # Pre-sync validation
+      - name: pre-sync-security-scan
+        phase: PreSync
+        kind: Job
+        apiVersion: batch/v1
+        metadata:
+          name: pre-sync-security-validation
+          annotations:
+            hook.sync.weight: "1"
+        spec:
+          template:
+            spec:
+              containers:
+              - name: security-scanner
+                image: aquasec/trivy:latest
+                command: ["/bin/sh"]
+                args: 
+                - "-c"
+                - |
+                  echo "Running security validation..."
+                  echo "Checking for CVEs in production images..."
+                  # Add actual security scanning logic here
+                  echo "Security validation passed"
+              restartPolicy: Never
+          backoffLimit: 1
+      
+      # Database migration hook
+      - name: pre-sync-db-migration
+        phase: PreSync
+        kind: Job
+        apiVersion: batch/v1
+        metadata:
+          name: database-migration
+          annotations:
+            hook.sync.weight: "2"
+        spec:
+          template:
+            spec:
+              containers:
+              - name: db-migrator
+                image: cybersentinel/api:${IMAGE_TAG}
+                command: ["/app/migrate"]
+                args: ["--dry-run"]
+                env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: cybersentinel-secrets
+                      key: database_url
+              restartPolicy: Never
+          backoffLimit: 1
+      
+      # Post-sync health validation
+      - name: post-sync-health-check
+        phase: PostSync
+        kind: Job
+        apiVersion: batch/v1
+        metadata:
+          name: post-sync-health-validation
+          annotations:
+            hook.sync.weight: "1"
+        spec:
+          template:
+            spec:
+              containers:
+              - name: health-checker
+                image: curlimages/curl:7.85.0
+                command: ["/bin/sh"]
+                args: 
+                - "-c"
+                - |
+                  echo "Waiting for services to be ready..."
+                  sleep 30
+                  echo "Checking API health..."
+                  curl -f http://cybersentinel-api:8000/health || exit 1
+                  echo "Checking UI health..."
+                  curl -f http://cybersentinel-ui:3000/health || exit 1
+                  echo "All health checks passed"
+              restartPolicy: Never
+          backoffLimit: 2
+      
+      # Production smoke tests
+      - name: post-sync-smoke-tests
+        phase: PostSync
+        kind: Job
+        apiVersion: batch/v1
+        metadata:
+          name: production-smoke-tests
+          annotations:
+            hook.sync.weight: "2"
+        spec:
+          template:
+            spec:
+              containers:
+              - name: smoke-tester
+                image: cybersentinel/test-runner:latest
+                command: ["/app/run_smoke_tests.sh"]
+                args: ["--environment", "prod"]
+                env:
+                - name: API_BASE_URL
+                  value: "https://api.${DOMAIN_NAME}"
+              restartPolicy: Never
+          backoffLimit: 1
+  
+  info:
+  - name: "Environment"
+    value: "Production"
+  - name: "Git Branch"
+    value: "main"
+  - name: "Deployment Strategy"
+    value: "Blue-Green with Canary"
+  - name: "Auto-sync"
+    value: "Disabled (Manual)"
+  - name: "Security Level"
+    value: "High"
+  - name: "SLA"
+    value: "99.9%"

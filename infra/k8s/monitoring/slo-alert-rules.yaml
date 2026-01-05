@@ -1,0 +1,456 @@
+---
+# CyberSentinel SLO Alerting Rules
+# Multi-burn-rate alerting for Service Level Objectives
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slo-alert-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: slo-alert-rules
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+data:
+  slo-alerts.yml: |
+    groups:
+    # SLO Multi-Burn-Rate Alerting Rules
+    # Following Google SRE best practices for error budget burn rate alerting
+    
+    - name: cybersentinel.slo.alerts
+      interval: 30s
+      rules:
+      
+      # API Service SLO Alerts
+      
+      # Critical: API Availability Error Budget Burn - Fast Burn (1h window)
+      - alert: CyberSentinelAPIAvailabilityCriticalBurn
+        expr: |
+          (
+            cybersentinel:error_budget:api_availability_burn_rate_1h > 14.4
+            and
+            cybersentinel:error_budget:api_availability_burn_rate_1h > 14.4
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: cybersentinel-api
+          slo_type: availability
+          team: sre
+          alert_type: slo_burn_rate
+          burn_rate: fast
+          runbook_url: "https://runbooks.cybersentinel.com/slo/api-availability-burn"
+        annotations:
+          summary: "API availability SLO error budget burning too fast"
+          description: |
+            API availability error budget is burning at {{ $value | humanize }}x the normal rate.
+            At this rate, the monthly error budget will be exhausted in {{ with $v := (720 / $value) }}{{ if lt $v 1 }}{{ printf "%.0f minutes" (mul $v 60) }}{{ else }}{{ printf "%.1f hours" $v }}{{ end }}{{ end }}.
+            Current availability: {{ with query "cybersentinel:api:availability_5m" }}{{ . | first | value | humanizePercentage }}{{ end }}
+            SLO target: 99.9%
+            Error budget remaining: {{ with query "(1 - avg_over_time(cybersentinel:api:availability_5m[30d])) / (1 - 0.999) * 100" }}{{ . | first | value | printf "%.2f" }}%{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-api/api-slo-dashboard"
+          incident_severity: "SEV1"
+      
+      # Critical: API Availability Error Budget Burn - Medium Burn (6h window)
+      - alert: CyberSentinelAPIAvailabilityMediumBurn
+        expr: |
+          (
+            cybersentinel:error_budget:api_availability_burn_rate_6h > 6
+            and
+            cybersentinel:error_budget:api_availability_burn_rate_6h > 6
+          )
+        for: 15m
+        labels:
+          severity: critical
+          service: cybersentinel-api
+          slo_type: availability
+          team: sre
+          alert_type: slo_burn_rate
+          burn_rate: medium
+          runbook_url: "https://runbooks.cybersentinel.com/slo/api-availability-burn"
+        annotations:
+          summary: "API availability SLO error budget burning at medium rate"
+          description: |
+            API availability error budget is burning at {{ $value | humanize }}x the normal rate over 6 hours.
+            At this rate, the monthly error budget will be exhausted in {{ with $v := (720 / $value) }}{{ if lt $v 24 }}{{ printf "%.1f hours" $v }}{{ else }}{{ printf "%.1f days" (div $v 24) }}{{ end }}{{ end }}.
+            Current 6h availability: {{ with query "avg_over_time(cybersentinel:api:availability_5m[6h])" }}{{ . | first | value | humanizePercentage }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-api/api-slo-dashboard"
+          incident_severity: "SEV2"
+      
+      # Warning: API Availability Error Budget Burn - Slow Burn (3d window)
+      - alert: CyberSentinelAPIAvailabilitySlowBurn
+        expr: |
+          (
+            cybersentinel:error_budget:api_availability_burn_rate_3d > 1
+            and
+            cybersentinel:error_budget:api_availability_burn_rate_3d > 1
+          )
+        for: 1h
+        labels:
+          severity: warning
+          service: cybersentinel-api
+          slo_type: availability
+          team: development
+          alert_type: slo_burn_rate
+          burn_rate: slow
+          runbook_url: "https://runbooks.cybersentinel.com/slo/api-availability-burn"
+        annotations:
+          summary: "API availability SLO error budget burning slowly"
+          description: |
+            API availability error budget is burning at {{ $value | humanize }}x the normal rate over 3 days.
+            At this rate, the monthly error budget will be exhausted in {{ with $v := (720 / $value) }}{{ printf "%.1f days" (div $v 24) }}{{ end }}.
+            Current 3d availability: {{ with query "avg_over_time(cybersentinel:api:availability_5m[3d])" }}{{ . | first | value | humanizePercentage }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-api/api-slo-dashboard"
+      
+      # API Latency SLO Alerts
+      
+      - alert: CyberSentinelAPILatencyCriticalBurn
+        expr: |
+          (
+            (1 - cybersentinel:api:latency_sli_5m) / (1 - 0.95) * 24 * 30 > 14.4
+            and
+            (1 - cybersentinel:api:latency_sli_5m) / (1 - 0.95) * 24 * 30 > 14.4
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: cybersentinel-api
+          slo_type: latency
+          team: sre
+          alert_type: slo_burn_rate
+          burn_rate: fast
+          runbook_url: "https://runbooks.cybersentinel.com/slo/api-latency-burn"
+        annotations:
+          summary: "API latency SLO error budget burning too fast"
+          description: |
+            API latency error budget is burning at {{ $value | humanize }}x the normal rate.
+            Current P95 latency: {{ with query "cybersentinel:api:latency_p95_5m" }}{{ . | first | value | humanizeDuration }}{{ end }}
+            SLO target: 95% under 500ms
+            Requests under 500ms: {{ with query "cybersentinel:api:latency_sli_5m" }}{{ . | first | value | humanizePercentage }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-api/api-slo-dashboard"
+          incident_severity: "SEV1"
+      
+      # Detection Engine SLO Alerts
+      
+      - alert: CyberSentinelDetectionReliabilityCriticalBurn
+        expr: |
+          (
+            cybersentinel:error_budget:detection_reliability_burn_rate_1h > 14.4
+            and
+            cybersentinel:error_budget:detection_reliability_burn_rate_1h > 14.4
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: cybersentinel-detection
+          slo_type: reliability
+          team: security
+          alert_type: slo_burn_rate
+          burn_rate: fast
+          runbook_url: "https://runbooks.cybersentinel.com/slo/detection-reliability-burn"
+        annotations:
+          summary: "Detection engine reliability SLO error budget burning too fast"
+          description: |
+            Detection engine reliability error budget is burning at {{ $value | humanize }}x the normal rate.
+            Current processing success rate: {{ with query "cybersentinel:detection:reliability_5m" }}{{ . | first | value | humanizePercentage }}{{ end }}
+            SLO target: 99.95%
+            Failed detection requests: {{ with query "sum(rate(detection_requests_total{status!=\"success\"}[5m]))" }}{{ . | first | value | humanize }}/sec{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-detection/detection-slo-dashboard"
+          incident_severity: "SEV1"
+      
+      - alert: CyberSentinelDetectionReliabilityMediumBurn
+        expr: |
+          (
+            cybersentinel:error_budget:detection_reliability_burn_rate_6h > 6
+            and
+            cybersentinel:error_budget:detection_reliability_burn_rate_6h > 6
+          )
+        for: 15m
+        labels:
+          severity: critical
+          service: cybersentinel-detection
+          slo_type: reliability
+          team: security
+          alert_type: slo_burn_rate
+          burn_rate: medium
+          runbook_url: "https://runbooks.cybersentinel.com/slo/detection-reliability-burn"
+        annotations:
+          summary: "Detection engine reliability SLO error budget burning at medium rate"
+          description: |
+            Detection engine reliability error budget is burning at {{ $value | humanize }}x the normal rate over 6 hours.
+            Current 6h processing success rate: {{ with query "avg_over_time(cybersentinel:detection:reliability_5m[6h])" }}{{ . | first | value | humanizePercentage }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-detection/detection-slo-dashboard"
+          incident_severity: "SEV2"
+      
+      # Detection Accuracy SLO Alert
+      - alert: CyberSentinelDetectionAccuracyDegraded
+        expr: |
+          cybersentinel:detection:accuracy_5m < 0.99
+        for: 5m
+        labels:
+          severity: warning
+          service: cybersentinel-detection
+          slo_type: accuracy
+          team: security
+          alert_type: slo_breach
+          runbook_url: "https://runbooks.cybersentinel.com/slo/detection-accuracy"
+        annotations:
+          summary: "Detection engine accuracy below SLO target"
+          description: |
+            Detection engine accuracy has dropped below 99% target.
+            Current accuracy: {{ $value | humanizePercentage }}
+            SLO target: 99%
+            Consider reviewing recent model changes or data quality issues.
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-detection/detection-slo-dashboard"
+      
+      # UI Service SLO Alerts
+      
+      - alert: CyberSentinelUIAvailabilityCriticalBurn
+        expr: |
+          (
+            (1 - cybersentinel:ui:availability_5m) / (1 - 0.995) * 24 * 30 > 14.4
+            and
+            (1 - cybersentinel:ui:availability_5m) / (1 - 0.995) * 24 * 30 > 14.4
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: cybersentinel-ui
+          slo_type: availability
+          team: frontend
+          alert_type: slo_burn_rate
+          burn_rate: fast
+          runbook_url: "https://runbooks.cybersentinel.com/slo/ui-availability-burn"
+        annotations:
+          summary: "UI availability SLO error budget burning too fast"
+          description: |
+            UI availability error budget is burning at {{ $value | humanize }}x the normal rate.
+            Current availability: {{ with query "cybersentinel:ui:availability_5m" }}{{ . | first | value | humanizePercentage }}{{ end }}
+            SLO target: 99.5%
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-ui/ui-slo-dashboard"
+          incident_severity: "SEV2"
+      
+      - alert: CyberSentinelUIPerformanceDegraded
+        expr: |
+          cybersentinel:ui:performance_sli_5m < 0.90
+        for: 10m
+        labels:
+          severity: warning
+          service: cybersentinel-ui
+          slo_type: performance
+          team: frontend
+          alert_type: slo_breach
+          runbook_url: "https://runbooks.cybersentinel.com/slo/ui-performance"
+        annotations:
+          summary: "UI performance below SLO target"
+          description: |
+            UI page load performance has dropped below 90% target.
+            Current performance: {{ $value | humanizePercentage }} of requests under 3 seconds
+            SLO target: 90%
+            Average page load time: {{ with query "histogram_quantile(0.90, sum(rate(http_request_duration_seconds_bucket{service=\"cybersentinel-ui\"}[5m])) by (le))" }}{{ . | first | value | humanizeDuration }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-ui/ui-slo-dashboard"
+      
+      # Infrastructure SLO Alerts
+      
+      - alert: CyberSentinelInfrastructurePodAvailabilityLow
+        expr: |
+          cybersentinel:infrastructure:pod_availability_5m < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          service: cybersentinel-infrastructure
+          slo_type: pod_availability
+          team: infrastructure
+          alert_type: slo_breach
+          runbook_url: "https://runbooks.cybersentinel.com/slo/infrastructure-pods"
+        annotations:
+          summary: "Infrastructure pod availability below SLO target"
+          description: |
+            Pod availability has dropped below 99.9% target.
+            Current pod availability: {{ $value | humanizePercentage }}
+            SLO target: 99.9%
+            Ready pods: {{ with query "sum(kube_pod_status_ready{namespace=\"cybersentinel\",condition=\"true\"})" }}{{ . | first | value }}{{ end }}
+            Total pods: {{ with query "sum(kube_pod_status_ready{namespace=\"cybersentinel\"})" }}{{ . | first | value }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-infrastructure/infrastructure-slo-dashboard"
+          incident_severity: "SEV1"
+      
+      - alert: CyberSentinelStorageHealthDegraded
+        expr: |
+          cybersentinel:infrastructure:pv_health_5m < 0.9999
+        for: 2m
+        labels:
+          severity: critical
+          service: cybersentinel-infrastructure
+          slo_type: storage_health
+          team: infrastructure
+          alert_type: slo_breach
+          runbook_url: "https://runbooks.cybersentinel.com/slo/storage-health"
+        annotations:
+          summary: "Storage health below SLO target"
+          description: |
+            Persistent volume health has dropped below 99.99% target.
+            Current storage health: {{ $value | humanizePercentage }}
+            SLO target: 99.99%
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-infrastructure/infrastructure-slo-dashboard"
+          incident_severity: "SEV1"
+      
+      # Database SLO Alerts
+      
+      - alert: CyberSentinelDatabaseAvailabilityLow
+        expr: |
+          cybersentinel:database:availability_5m < 0.9995
+        for: 2m
+        labels:
+          severity: critical
+          service: cybersentinel-database
+          slo_type: availability
+          team: database
+          alert_type: slo_breach
+          runbook_url: "https://runbooks.cybersentinel.com/slo/database-availability"
+        annotations:
+          summary: "Database availability below SLO target"
+          description: |
+            Database connection success rate has dropped below 99.95% target.
+            Current database availability: {{ $value | humanizePercentage }}
+            SLO target: 99.95%
+            Failed connections: {{ with query "sum(rate(db_connections_total{status!=\"success\"}[5m]))" }}{{ . | first | value | humanize }}/sec{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-database/database-slo-dashboard"
+          incident_severity: "SEV1"
+      
+      - alert: CyberSentinelDatabasePerformanceDegraded
+        expr: |
+          cybersentinel:database:performance_sli_5m < 0.95
+        for: 10m
+        labels:
+          severity: warning
+          service: cybersentinel-database
+          slo_type: performance
+          team: database
+          alert_type: slo_breach
+          runbook_url: "https://runbooks.cybersentinel.com/slo/database-performance"
+        annotations:
+          summary: "Database performance below SLO target"
+          description: |
+            Database query performance has dropped below 95% target.
+            Current performance: {{ $value | humanizePercentage }} of queries under 100ms
+            SLO target: 95%
+            Average query time: {{ with query "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket[5m])) by (le))" }}{{ . | first | value | humanizeDuration }}{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-database/database-slo-dashboard"
+
+    # SLO Exhaustion and Breach Alerts
+    
+    - name: cybersentinel.slo.breach
+      interval: 5m
+      rules:
+      
+      # Monthly SLO Breach Alerts
+      - alert: CyberSentinelSLOBreachRisk
+        expr: |
+          (
+            cybersentinel:slo:api_availability_30d < 0.999 or
+            cybersentinel:slo:ui_availability_30d < 0.995 or
+            cybersentinel:slo:detection_reliability_30d < 0.9995 or
+            cybersentinel:slo:detection_accuracy_7d < 0.99
+          )
+        for: 15m
+        labels:
+          severity: critical
+          team: sre
+          alert_type: slo_breach_risk
+          runbook_url: "https://runbooks.cybersentinel.com/slo/breach-response"
+        annotations:
+          summary: "SLO breach risk detected - monthly target at risk"
+          description: |
+            One or more SLOs are at risk of monthly target breach:
+            - API Availability (30d): {{ with query "cybersentinel:slo:api_availability_30d" }}{{ . | first | value | humanizePercentage }}{{ end }} (target: 99.9%)
+            - UI Availability (30d): {{ with query "cybersentinel:slo:ui_availability_30d" }}{{ . | first | value | humanizePercentage }}{{ end }} (target: 99.5%)
+            - Detection Reliability (30d): {{ with query "cybersentinel:slo:detection_reliability_30d" }}{{ . | first | value | humanizePercentage }}{{ end }} (target: 99.95%)
+            - Detection Accuracy (7d): {{ with query "cybersentinel:slo:detection_accuracy_7d" }}{{ . | first | value | humanizePercentage }}{{ end }} (target: 99%)
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-overview/slo-overview-dashboard"
+          incident_severity: "SEV1"
+          escalation_policy: "immediate"
+      
+      # Error Budget Exhaustion Warning
+      - alert: CyberSentinelErrorBudgetLow
+        expr: |
+          (
+            ((1 - avg_over_time(cybersentinel:api:availability_5m[30d])) / (1 - 0.999) * 100) > 80 or
+            ((1 - avg_over_time(cybersentinel:detection:reliability_5m[30d])) / (1 - 0.9995) * 100) > 80
+          )
+        for: 30m
+        labels:
+          severity: warning
+          team: sre
+          alert_type: error_budget_low
+          runbook_url: "https://runbooks.cybersentinel.com/slo/error-budget-management"
+        annotations:
+          summary: "Error budget consumption high - approaching monthly limit"
+          description: |
+            Error budget consumption is high for one or more services:
+            - API Error Budget Used: {{ with query "(1 - avg_over_time(cybersentinel:api:availability_5m[30d])) / (1 - 0.999) * 100" }}{{ . | first | value | printf "%.1f" }}%{{ end }}
+            - Detection Error Budget Used: {{ with query "(1 - avg_over_time(cybersentinel:detection:reliability_5m[30d])) / (1 - 0.9995) * 100" }}{{ . | first | value | printf "%.1f" }}%{{ end }}
+            
+            Consider implementing change freeze or reducing deployment frequency to preserve error budget.
+          dashboard_url: "https://grafana.cybersentinel.com/d/slo-overview/slo-overview-dashboard"
+
+    # SLO Health Check Rules
+    
+    - name: cybersentinel.slo.health
+      interval: 10m
+      rules:
+      
+      # SLO Metric Health Check
+      - alert: CyberSentinelSLOMetricsMissing
+        expr: |
+          (
+            absent(up{job="cybersentinel-api"}) or
+            absent(up{job="cybersentinel-ui"}) or
+            absent(up{job="cybersentinel-detection"}) or
+            absent(up{job="prometheus"})
+          )
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+          alert_type: metrics_missing
+          runbook_url: "https://runbooks.cybersentinel.com/slo/metrics-troubleshooting"
+        annotations:
+          summary: "SLO metrics missing - monitoring data unavailable"
+          description: |
+            Critical metrics for SLO calculation are missing.
+            This may affect SLO accuracy and alerting.
+            
+            Missing metrics from:
+            {{ if absent(up{job="cybersentinel-api"}) }}- API service metrics{{ end }}
+            {{ if absent(up{job="cybersentinel-ui"}) }}- UI service metrics{{ end }}
+            {{ if absent(up{job="cybersentinel-detection"}) }}- Detection service metrics{{ end }}
+            {{ if absent(up{job="prometheus"}) }}- Prometheus itself{{ end }}
+          dashboard_url: "https://grafana.cybersentinel.com/d/prometheus-targets/prometheus-targets"
+      
+      # SLO Recording Rules Health
+      - alert: CyberSentinelSLORecordingRulesFailed
+        expr: |
+          (
+            absent(cybersentinel:api:availability_5m) or
+            absent(cybersentinel:detection:reliability_5m) or
+            absent(cybersentinel:ui:availability_5m)
+          )
+        for: 10m
+        labels:
+          severity: critical
+          team: sre
+          alert_type: recording_rules_failed
+          runbook_url: "https://runbooks.cybersentinel.com/slo/recording-rules-troubleshooting"
+        annotations:
+          summary: "SLO recording rules not working - SLI calculations failing"
+          description: |
+            SLO recording rules are not producing expected metrics.
+            This will break SLO dashboards and alerting.
+            
+            Missing SLI metrics:
+            {{ if absent(cybersentinel:api:availability_5m) }}- API availability SLI{{ end }}
+            {{ if absent(cybersentinel:detection:reliability_5m) }}- Detection reliability SLI{{ end }}
+            {{ if absent(cybersentinel:ui:availability_5m) }}- UI availability SLI{{ end }}
+            
+            Check Prometheus configuration and restart if needed.
+          dashboard_url: "https://grafana.cybersentinel.com/d/prometheus-rules/prometheus-rules"
+          incident_severity: "SEV2"

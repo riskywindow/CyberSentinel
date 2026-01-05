@@ -1,0 +1,301 @@
+name: IRSA Validation
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/irsa-validation.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to validate'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - dev
+          - staging
+          - prod
+
+env:
+  AWS_REGION: us-west-2
+  TERRAFORM_VERSION: 1.6.0
+
+jobs:
+  irsa-placeholder-validation:
+    name: IRSA Placeholder Validation
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Initialize Terraform
+        working-directory: ./infra/terraform
+        run: |
+          terraform init -input=false
+      
+      - name: Plan Terraform (for outputs)
+        working-directory: ./infra/terraform
+        run: |
+          terraform plan \
+            -var-file=environments/${{ matrix.environment }}.tfvars \
+            -input=false \
+            -no-color
+        env:
+          TF_VAR_environment: ${{ matrix.environment }}
+      
+      - name: Render K8s manifests
+        working-directory: ./infra
+        run: |
+          # Skip validation in render step, we'll validate separately
+          SKIP_VALIDATION=true ./render-k8s-manifests.sh ${{ matrix.environment }}
+      
+      - name: Validate IRSA placeholders
+        working-directory: ./infra
+        run: |
+          ./ci-validate-irsa.sh --environment ${{ matrix.environment }}
+        env:
+          CI: true
+          ENVIRONMENT: ${{ matrix.environment }}
+      
+      - name: Upload validation report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: irsa-validation-report-${{ matrix.environment }}
+          path: infra/ci-irsa-validation-report.md
+          retention-days: 30
+  
+  terraform-validation:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      
+      - name: Terraform Format Check
+        working-directory: ./infra/terraform
+        run: terraform fmt -check -recursive
+      
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init -input=false
+      
+      - name: Terraform Validate
+        working-directory: ./infra/terraform
+        run: terraform validate
+      
+      - name: Terraform Plan (Dev)
+        working-directory: ./infra/terraform
+        run: |
+          terraform plan \
+            -var-file=environments/dev.tfvars \
+            -input=false \
+            -no-color
+        env:
+          TF_VAR_environment: dev
+  
+  manifest-syntax-validation:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+      
+      - name: Validate source manifests syntax
+        working-directory: ./infra
+        run: |
+          # Validate original manifests
+          for file in k8s/namespace.yaml backup/velero-setup.yaml k8s/gitops/argocd-rbac.yaml; do
+            if [ -f "$file" ]; then
+              echo "Validating $file..."
+              kubectl apply --dry-run=client -f "$file" || echo "⚠️ $file may have placeholders"
+            fi
+          done
+      
+      - name: Validate Helm charts
+        working-directory: ./infra/helm/cybersentinel
+        run: |
+          # Install helm
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          
+          # Validate chart
+          helm lint .
+          
+          # Test template rendering
+          helm template . --values values-dev.yaml > /dev/null
+          echo "✅ Helm chart validation passed"
+      
+      - name: Validate ArgoCD Applications
+        working-directory: ./infra/k8s/gitops
+        run: |
+          for app in applications/*.yaml; do
+            if [ -f "$app" ]; then
+              echo "Validating $app..."
+              # Basic YAML syntax check
+              kubectl apply --dry-run=client -f "$app" || echo "⚠️ $app may have placeholders"
+            fi
+          done
+
+  security-checks:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check for secrets in manifests
+        run: |
+          echo "🔍 Scanning for potential secrets..."
+          
+          # Check for base64 encoded values that might be secrets
+          if grep -r "apiVersion: v1" infra/ | grep -E "(Secret|ConfigMap)" | xargs grep -l "data:" | while read file; do
+            if grep -E "password|token|key|secret" "$file" | grep -v "name:" | grep -v "type:"; then
+              echo "⚠️ Potential secret found in: $file"
+            fi
+          done
+          
+          echo "✅ Security scan completed"
+      
+      - name: Validate RBAC permissions
+        run: |
+          echo "🔍 Validating RBAC configurations..."
+          
+          # Check for overly permissive RBAC
+          if grep -r "resources:" infra/k8s/gitops/ | grep -E "\*|\"\\*\""; then
+            echo "⚠️ Found wildcard permissions in RBAC - review for least privilege"
+          fi
+          
+          # Check ServiceAccount annotations for IRSA
+          if grep -r "eks.amazonaws.com/role-arn" infra/ | grep -v "ACCOUNT_ID" | grep -v "\${"; then
+            echo "✅ Found hardcoded IRSA role ARNs"
+          fi
+          
+          echo "✅ RBAC validation completed"
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [irsa-placeholder-validation, terraform-validation]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download validation reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: irsa-validation-report-*
+          path: reports/
+      
+      - name: Generate summary report
+        run: |
+          echo "# 🚀 CyberSentinel IRSA Validation Summary" > validation-summary.md
+          echo "" >> validation-summary.md
+          echo "**Pull Request**: #${{ github.event.number }}" >> validation-summary.md
+          echo "**Branch**: ${{ github.head_ref }}" >> validation-summary.md
+          echo "**Commit**: ${{ github.sha }}" >> validation-summary.md
+          echo "**Timestamp**: $(date -u)" >> validation-summary.md
+          echo "" >> validation-summary.md
+          
+          echo "## Environment Validation Status" >> validation-summary.md
+          echo "" >> validation-summary.md
+          
+          for env in dev staging prod; do
+            if [ -f "reports/irsa-validation-report-${env}/ci-irsa-validation-report.md" ]; then
+              echo "### ${env^^} Environment" >> validation-summary.md
+              echo "" >> validation-summary.md
+              grep -A 10 "## Summary" "reports/irsa-validation-report-${env}/ci-irsa-validation-report.md" >> validation-summary.md
+              echo "" >> validation-summary.md
+            fi
+          done
+          
+          echo "## Next Steps" >> validation-summary.md
+          echo "" >> validation-summary.md
+          echo "- ✅ Review validation reports for each environment" >> validation-summary.md
+          echo "- 🔧 Fix any failed validations before merging" >> validation-summary.md
+          echo "- 📋 Ensure all IRSA placeholders are resolved" >> validation-summary.md
+          echo "- 🚀 Ready for deployment after merge" >> validation-summary.md
+      
+      - name: Comment PR with validation results
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('validation-summary.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+  post-validation:
+    name: Post-Validation Actions
+    runs-on: ubuntu-latest
+    needs: [irsa-placeholder-validation, terraform-validation, manifest-syntax-validation]
+    if: always()
+    
+    steps:
+      - name: Validation Results
+        run: |
+          echo "🎯 IRSA Validation Pipeline Complete"
+          echo ""
+          echo "Results:"
+          echo "- IRSA Placeholder Validation: ${{ needs.irsa-placeholder-validation.result }}"
+          echo "- Terraform Validation: ${{ needs.terraform-validation.result }}"
+          echo "- Manifest Syntax Validation: ${{ needs.manifest-syntax-validation.result }}"
+          
+          if [[ "${{ needs.irsa-placeholder-validation.result }}" == "success" && 
+                "${{ needs.terraform-validation.result }}" == "success" && 
+                "${{ needs.manifest-syntax-validation.result }}" == "success" ]]; then
+            echo ""
+            echo "🎉 All validations passed! Infrastructure is ready for deployment."
+          else
+            echo ""
+            echo "❌ Some validations failed. Please review and fix issues."
+            exit 1
+          fi

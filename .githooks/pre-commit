@@ -1,0 +1,107 @@
+#!/bin/bash
+# Pre-commit hook for CyberSentinel IRSA validation
+# Prevents commits with unresolved IRSA placeholders in rendered manifests
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+echo -e "${YELLOW}🔍 Running IRSA placeholder validation...${NC}"
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${RED}❌ Not in a git repository${NC}"
+    exit 1
+fi
+
+# Get list of staged files
+staged_files=$(git diff --cached --name-only)
+
+# Check if any infrastructure files are being committed
+infra_files_changed=false
+for file in $staged_files; do
+    if [[ "$file" =~ ^infra/ ]] || [[ "$file" =~ \.yaml$ ]] || [[ "$file" =~ \.yml$ ]]; then
+        infra_files_changed=true
+        break
+    fi
+done
+
+if [[ "$infra_files_changed" == "false" ]]; then
+    echo -e "${GREEN}✅ No infrastructure files changed, skipping IRSA validation${NC}"
+    exit 0
+fi
+
+# Check for problematic patterns in staged files
+validation_errors=0
+
+echo "Checking staged files for IRSA placeholder issues..."
+
+for file in $staged_files; do
+    if [[ -f "$file" && ( "$file" =~ \.yaml$ || "$file" =~ \.yml$ ) ]]; then
+        
+        # Skip source templates (they should have placeholders)
+        if [[ "$file" =~ (namespace\.yaml|velero-setup\.yaml|argocd-rbac\.yaml)$ ]] && [[ ! "$file" =~ -[a-z]+\.yaml$ ]]; then
+            continue
+        fi
+        
+        # Check rendered manifests for placeholders
+        if [[ "$file" =~ -(dev|staging|prod)\.yaml$ ]]; then
+            echo "Checking rendered manifest: $file"
+            
+            # Check for unresolved placeholders
+            if git show :$file | grep -qE "(ACCOUNT_ID|\${AWS_ACCOUNT_ID}|\${ENVIRONMENT}|ENV(?![A-Z]))"; then
+                echo -e "${RED}❌ Found unresolved IRSA placeholders in: $file${NC}"
+                git show :$file | grep -nE "(ACCOUNT_ID|\${AWS_ACCOUNT_ID}|\${ENVIRONMENT}|ENV(?![A-Z]))" || true
+                validation_errors=$((validation_errors + 1))
+            fi
+            
+            # Check for proper ARN format
+            if git show :$file | grep -q "eks.amazonaws.com/role-arn" && ! git show :$file | grep -qE "arn:aws:iam::[0-9]{12}:role/"; then
+                echo -e "${RED}❌ IRSA annotation found but ARN appears invalid in: $file${NC}"
+                validation_errors=$((validation_errors + 1))
+            fi
+        fi
+        
+        # Check for accidentally committed sensitive values
+        if git show :$file | grep -qiE "(password|secret|key).*=.*['\"].*['\"]" && ! git show :$file | grep -q "placeholder"; then
+            echo -e "${RED}❌ Potential secret found in: $file${NC}"
+            validation_errors=$((validation_errors + 1))
+        fi
+        
+        # Check Terraform files for missing variables
+        if [[ "$file" =~ \.tf$ ]] && git show :$file | grep -q "var\.project_name" && [[ ! -f "infra/terraform/variables.tf" || ! $(grep -q "variable.*project_name" infra/terraform/variables.tf) ]]; then
+            echo -e "${RED}❌ Reference to undefined variable 'project_name' in: $file${NC}"
+            validation_errors=$((validation_errors + 1))
+        fi
+    fi
+done
+
+# Check if render script exists and is executable
+if [[ ! -x "infra/render-k8s-manifests.sh" ]]; then
+    echo -e "${YELLOW}⚠️ IRSA render script not found or not executable${NC}"
+    echo "Run: chmod +x infra/render-k8s-manifests.sh"
+fi
+
+# Final validation
+if [[ $validation_errors -gt 0 ]]; then
+    echo -e "${RED}❌ Pre-commit validation failed with $validation_errors errors${NC}"
+    echo ""
+    echo "To fix:"
+    echo "1. Run: cd infra && ./render-k8s-manifests.sh <environment>"
+    echo "2. Ensure Terraform is deployed: cd infra/terraform && terraform apply"
+    echo "3. Re-stage your files: git add <files>"
+    echo "4. Commit again"
+    echo ""
+    echo "To skip this check (not recommended): git commit --no-verify"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ IRSA validation passed${NC}"
+exit 0

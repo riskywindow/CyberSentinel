@@ -1,0 +1,79 @@
+---
+# CyberSentinel Development Environment Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cybersentinel-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-dev
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: cybersentinel
+    environment: dev
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "dev"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: "critical"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cybersentinel
+  
+  source:
+    repoURL: https://github.com/cybersentinel/cybersentinel
+    targetRevision: develop  # Track develop branch for dev environment
+    path: infra/helm/cybersentinel
+    helm:
+      valueFiles:
+      - values.yaml
+      - values-dev.yaml
+      parameters:
+      - name: global.environment
+        value: dev
+      - name: global.domain
+        value: "${DOMAIN_NAME}"
+      - name: image.tag
+        value: "develop-latest"
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cybersentinel-dev
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  revisionHistoryLimit: 10
+  
+  # Health and sync configuration
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers:
+    - /spec/replicas
+  - group: ""
+    kind: Service
+    jsonPointers:
+    - /spec/clusterIP
+  
+  # Resource hooks for deployment validation
+  info:
+  - name: "Environment"
+    value: "Development"
+  - name: "Git Branch"
+    value: "develop"
+  - name: "Auto-sync"
+    value: "Enabled"

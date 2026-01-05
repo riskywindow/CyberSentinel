@@ -1,0 +1,206 @@
+{{- if .Values.agents.responder.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-responder
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder
+spec:
+  replicas: {{ .Values.agents.responder.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: responder
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "cybersentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: responder
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cybersentinel.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-message-bus
+          image: busybox:1.35
+          command: ['sh', '-c', 'until nc -z {{ include "cybersentinel.natsHost" . }} {{ .Values.nats.port | default "4222" }}; do echo waiting for NATS; sleep 2; done;']
+        - name: wait-for-analyst
+          image: busybox:1.35
+          command: ['sh', '-c', 'until nc -z {{ include "cybersentinel.fullname" . }}-analyst 8002; do echo waiting for Analyst agent; sleep 2; done;']
+        - name: wait-for-opa
+          image: busybox:1.35
+          command: ['sh', '-c', 'echo "OPA policy engine ready (integrated)"']
+      containers:
+        - name: responder
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.agents.responder.image.repository }}:{{ .Values.agents.responder.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.agents.responder.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8003
+              protocol: TCP
+            - name: metrics
+              containerPort: 9003
+              protocol: TCP
+          env:
+            {{- include "cybersentinel.commonEnv" . | nindent 12 }}
+            - name: AGENT_TYPE
+              value: "responder"
+            - name: AGENT_PORT
+              value: "8003"
+            - name: METRICS_PORT
+              value: "9003"
+            - name: LOG_LEVEL
+              value: {{ .Values.app.logLevel | default "INFO" | quote }}
+            # Message bus configuration
+            - name: NATS_URL
+              value: "nats://{{ include "cybersentinel.natsHost" . }}:{{ .Values.nats.port | default "4222" }}"
+            # Analyst agent integration
+            - name: ANALYST_AGENT_URL
+              value: "http://{{ include "cybersentinel.fullname" . }}-analyst:8002"
+            # Playbook configuration
+            - name: PLAYBOOKS_PATH
+              value: "/app/playbooks"
+            - name: PLAYBOOK_LIBRARY_PATH
+              value: "/app/playbooks/library"
+            - name: PLAYBOOK_EXECUTION_TIMEOUT
+              value: {{ .Values.agents.responder.playbookTimeoutSeconds | default "600" | quote }}
+            - name: MAX_CONCURRENT_PLAYBOOKS
+              value: {{ .Values.agents.responder.maxConcurrentPlaybooks | default "5" | quote }}
+            # Risk assessment and policy
+            - name: RISK_ASSESSMENT_ENABLED
+              value: {{ .Values.agents.responder.riskAssessment.enabled | default "true" | quote }}
+            - name: AUTO_APPROVE_LOW_RISK
+              value: {{ .Values.agents.responder.riskAssessment.autoApproveLowRisk | default "true" | quote }}
+            - name: REQUIRE_APPROVAL_HIGH_RISK
+              value: {{ .Values.agents.responder.riskAssessment.requireApprovalHighRisk | default "true" | quote }}
+            # OPA policy engine
+            - name: OPA_POLICY_PATH
+              value: "/app/policies"
+            - name: OPA_DECISION_ENDPOINT
+              value: "http://localhost:8181/v1/data"
+            # Security and compliance
+            - name: AUDIT_LOG_ENABLED
+              value: {{ .Values.agents.responder.audit.enabled | default "true" | quote }}
+            - name: AUDIT_LOG_PATH
+              value: "/app/logs/audit.log"
+            - name: DRY_RUN_MODE
+              value: {{ .Values.agents.responder.dryRunMode | default "false" | quote }}
+            # External integrations
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-api-secrets
+                  key: SLACK_WEBHOOK_URL
+                  optional: true
+            - name: PAGERDUTY_INTEGRATION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-api-secrets
+                  key: PAGERDUTY_INTEGRATION_KEY
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agents.responder.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+            - name: playbooks
+              mountPath: /app/playbooks
+            - name: policies
+              mountPath: /app/policies
+            - name: audit-logs
+              mountPath: /app/audit
+            - name: tmp
+              mountPath: /tmp
+        # OPA Policy Engine Sidecar
+        - name: opa
+          image: openpolicyagent/opa:0.58.0
+          ports:
+            - name: opa-http
+              containerPort: 8181
+              protocol: TCP
+          args:
+            - "run"
+            - "--server"
+            - "--addr=0.0.0.0:8181"
+            - "/policies"
+          volumeMounts:
+            - name: policies
+              mountPath: /policies
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "cybersentinel.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: logs
+          emptyDir: {}
+        - name: playbooks
+          configMap:
+            name: {{ include "cybersentinel.fullname" . }}-playbooks
+        - name: policies
+          configMap:
+            name: {{ include "cybersentinel.fullname" . }}-policies
+        - name: audit-logs
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 500Mi
+      {{- with .Values.agents.responder.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agents.responder.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agents.responder.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

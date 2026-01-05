@@ -1,0 +1,50 @@
+{{- if and .Values.redteam.enabled .Values.redteam.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-redteam
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redteam
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "cybersentinel.fullname" . }}-redteam
+  minReplicas: {{ .Values.redteam.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.redteam.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.redteam.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.redteam.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.redteam.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.redteam.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.redteam.autoscaling.scaleDownStabilizationWindowSeconds | default 300 }}
+      policies:
+      - type: Percent
+        value: {{ .Values.redteam.autoscaling.scaleDownPercent | default 25 }}
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.redteam.autoscaling.scaleUpStabilizationWindowSeconds | default 60 }}
+      policies:
+      - type: Percent
+        value: {{ .Values.redteam.autoscaling.scaleUpPercent | default 50 }}
+        periodSeconds: 30
+      - type: Pods
+        value: {{ .Values.redteam.autoscaling.scaleUpPods | default 1 }}
+        periodSeconds: 30
+      selectPolicy: Max
+{{- end }}

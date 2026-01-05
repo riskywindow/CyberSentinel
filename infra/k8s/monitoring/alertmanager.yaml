@@ -1,0 +1,688 @@
+---
+# Alertmanager Deployment for CyberSentinel
+# High-availability configuration with persistent storage and comprehensive alerting
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alertmanager
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alertmanager
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alertmanager
+subjects:
+- kind: ServiceAccount
+  name: alertmanager
+  namespace: monitoring
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      # Global configuration
+      smtp_smarthost: 'localhost:587'
+      smtp_from: 'cybersentinel-alerts@company.com'
+      smtp_auth_username: 'alerts@company.com'
+      smtp_auth_password_file: '/etc/alertmanager/secrets/smtp_password'
+      
+      # Slack API URL from secret
+      slack_api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+      
+      # PagerDuty integration key from secret  
+      pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+      
+      # Resolve timeout for alerts
+      resolve_timeout: 5m
+
+    # Templates for alert formatting
+    templates:
+    - '/etc/alertmanager/templates/*.tmpl'
+
+    # Routing configuration
+    route:
+      group_by: ['alertname', 'environment', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'default-receiver'
+      
+      routes:
+      # Critical alerts - immediate notification
+      - match:
+          severity: critical
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 5m
+        routes:
+        # Production critical alerts go to PagerDuty + Slack
+        - match:
+            environment: prod
+          receiver: 'critical-pagerduty-slack'
+        # Non-prod critical alerts go to Slack only
+        - match:
+            environment: staging
+          receiver: 'critical-slack'
+        - match:
+            environment: dev
+          receiver: 'dev-slack'
+      
+      # Warning alerts - standard notification
+      - match:
+          severity: warning
+        group_wait: 2m
+        group_interval: 10m
+        repeat_interval: 4h
+        routes:
+        - match:
+            environment: prod
+          receiver: 'warning-slack'
+        - match:
+            environment: staging
+          receiver: 'warning-slack'
+        - match:
+            environment: dev
+          receiver: 'dev-slack'
+      
+      # Infrastructure alerts
+      - match_re:
+          alertname: '^(NodeDown|DiskSpaceLow|MemoryUsageHigh|CPUUsageHigh)$'
+        receiver: 'infrastructure-team'
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # Database alerts
+      - match_re:
+          alertname: '^.*Database.*'
+        receiver: 'database-team'
+        group_interval: 2m
+        repeat_interval: 1h
+      
+      # Application alerts
+      - match_re:
+          alertname: '^CyberSentinel.*'
+        receiver: 'application-team'
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # Dead man's switch - heartbeat alert
+      - match:
+          alertname: DeadMansSwitch
+        receiver: 'deadmansswitch'
+        group_wait: 0s
+        group_interval: 1m
+        repeat_interval: 50s
+
+    # Alert inhibition rules
+    inhibit_rules:
+    # Inhibit warning alerts if critical alert is firing
+    - source_match:
+        severity: 'critical'
+      target_match:
+        severity: 'warning'
+      equal: ['alertname', 'environment', 'instance']
+    
+    # Inhibit API alerts if the entire pod is down
+    - source_match:
+        alertname: 'CyberSentinelAPIDown'
+      target_match_re:
+        alertname: '^CyberSentinel(HighResponseTime|HighErrorRate)$'
+      equal: ['instance']
+    
+    # Inhibit individual service alerts if cluster is down
+    - source_match:
+        alertname: 'KubernetesNodeNotReady'
+      target_match_re:
+        alertname: '^CyberSentinel.*'
+      equal: ['node']
+
+    # Alert receivers configuration
+    receivers:
+    # Default receiver - logs only
+    - name: 'default-receiver'
+      webhook_configs:
+      - url: 'http://localhost:5001/webhook'
+        send_resolved: true
+        title: 'CyberSentinel Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Environment: {{ .Labels.environment }}
+          Severity: {{ .Labels.severity }}
+          {{ end }}
+
+    # Critical alerts - PagerDuty + Slack
+    - name: 'critical-pagerduty-slack'
+      pagerduty_configs:
+      - routing_key_file: '/etc/alertmanager/secrets/pagerduty_routing_key'
+        description: 'CyberSentinel Critical Alert: {{ .GroupLabels.alertname }}'
+        severity: '{{ .CommonLabels.severity }}'
+        details:
+          alert_count: '{{ .Alerts | len }}'
+          environment: '{{ .CommonLabels.environment }}'
+          summary: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        links:
+        - href: 'https://grafana.cybersentinel.company.com'
+          text: 'Grafana Dashboard'
+        - href: 'https://prometheus.cybersentinel.company.com'
+          text: 'Prometheus'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#alerts-critical'
+        title: '🚨 CRITICAL: CyberSentinel Alert'
+        text: |
+          *Environment:* {{ .CommonLabels.environment }}
+          *Alert:* {{ .GroupLabels.alertname }}
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          {{ end }}
+        send_resolved: true
+        title_link: 'https://grafana.cybersentinel.company.com'
+        fields:
+        - title: 'Environment'
+          value: '{{ .CommonLabels.environment }}'
+          short: true
+        - title: 'Severity'
+          value: '{{ .CommonLabels.severity }}'
+          short: true
+        - title: 'Alert Count'
+          value: '{{ .Alerts | len }}'
+          short: true
+
+    # Critical alerts - Slack only (non-prod)
+    - name: 'critical-slack'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#alerts-staging'
+        title: '⚠️ CRITICAL ({{ .CommonLabels.environment }}): {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+        color: 'danger'
+
+    # Warning alerts - Slack
+    - name: 'warning-slack'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#alerts'
+        title: '⚠️ WARNING ({{ .CommonLabels.environment }}): {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+        color: 'warning'
+
+    # Development alerts
+    - name: 'dev-slack'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#dev-alerts'
+        title: '🛠️ DEV Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+        color: 'good'
+
+    # Infrastructure team alerts
+    - name: 'infrastructure-team'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#infrastructure'
+        title: '🏗️ Infrastructure Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+      email_configs:
+      - to: 'infrastructure-team@company.com'
+        subject: 'CyberSentinel Infrastructure Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          Alert Details:
+          {{ range .Alerts }}
+          Summary: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Environment: {{ .Labels.environment }}
+          Severity: {{ .Labels.severity }}
+          Timestamp: {{ .StartsAt }}
+          {{ end }}
+
+    # Database team alerts
+    - name: 'database-team'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#database'
+        title: '💾 Database Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+      email_configs:
+      - to: 'database-team@company.com'
+        subject: 'CyberSentinel Database Alert: {{ .GroupLabels.alertname }}'
+
+    # Application team alerts
+    - name: 'application-team'
+      slack_configs:
+      - api_url_file: '/etc/alertmanager/secrets/slack_webhook_url'
+        channel: '#application'
+        title: '🔍 Application Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+      email_configs:
+      - to: 'application-team@company.com'
+        subject: 'CyberSentinel Application Alert: {{ .GroupLabels.alertname }}'
+
+    # Dead man's switch
+    - name: 'deadmansswitch'
+      webhook_configs:
+      - url: 'https://deadmanssnitch.com/12345678'
+        send_resolved: false
+
+---
+# Alert templates for better formatting
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+data:
+  default.tmpl: |
+    {{ define "slack.cybersentinel.title" }}
+    [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] 
+    {{ .GroupLabels.alertname }} ({{ .CommonLabels.environment }})
+    {{ end }}
+
+    {{ define "slack.cybersentinel.text" }}
+    {{ range .Alerts }}
+    {{ if .Annotations.summary }}*Summary:* {{ .Annotations.summary }}{{ end }}
+    {{ if .Annotations.description }}*Description:* {{ .Annotations.description }}{{ end }}
+    {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+    *Severity:* {{ .Labels.severity }}
+    *Environment:* {{ .Labels.environment }}
+    {{ if .Labels.instance }}*Instance:* {{ .Labels.instance }}{{ end }}
+    {{ if .Labels.job }}*Job:* {{ .Labels.job }}{{ end }}
+    {{ end }}
+    {{ end }}
+
+    {{ define "email.cybersentinel.subject" }}
+    [CyberSentinel {{ .Status | title }}] {{ .GroupLabels.alertname }} in {{ .CommonLabels.environment }}
+    {{ end }}
+
+    {{ define "email.cybersentinel.body" }}
+    <h3>CyberSentinel Alert Notification</h3>
+    <p><strong>Status:</strong> {{ .Status | title }}</p>
+    <p><strong>Environment:</strong> {{ .CommonLabels.environment }}</p>
+    <p><strong>Alert Group:</strong> {{ .GroupLabels.alertname }}</p>
+
+    <h4>Alert Details:</h4>
+    <table border="1" style="border-collapse: collapse; width: 100%;">
+      <tr>
+        <th>Summary</th>
+        <th>Description</th>
+        <th>Severity</th>
+        <th>Instance</th>
+        <th>Started</th>
+      </tr>
+      {{ range .Alerts }}
+      <tr>
+        <td>{{ .Annotations.summary }}</td>
+        <td>{{ .Annotations.description }}</td>
+        <td>{{ .Labels.severity }}</td>
+        <td>{{ .Labels.instance }}</td>
+        <td>{{ .StartsAt.Format "2006-01-02 15:04:05" }}</td>
+      </tr>
+      {{ end }}
+    </table>
+
+    <h4>Quick Links:</h4>
+    <ul>
+      <li><a href="https://grafana.cybersentinel.company.com">Grafana Dashboard</a></li>
+      <li><a href="https://prometheus.cybersentinel.company.com">Prometheus</a></li>
+      <li><a href="https://alertmanager.cybersentinel.company.com">Alertmanager</a></li>
+    </ul>
+    {{ end }}
+
+---
+# StatefulSet for Alertmanager with persistent storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  serviceName: alertmanager-headless
+  replicas: 3  # HA configuration
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/component: monitoring
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/part-of: cybersentinel
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9093"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: alertmanager
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.26.0
+        args:
+        - '--config.file=/etc/alertmanager/config/alertmanager.yml'
+        - '--storage.path=/alertmanager'
+        - '--data.retention=120h'
+        - '--cluster.listen-address=0.0.0.0:9094'
+        - '--cluster.peer=alertmanager-0.alertmanager-headless.monitoring.svc.cluster.local:9094'
+        - '--cluster.peer=alertmanager-1.alertmanager-headless.monitoring.svc.cluster.local:9094'
+        - '--cluster.peer=alertmanager-2.alertmanager-headless.monitoring.svc.cluster.local:9094'
+        - '--cluster.reconnect-timeout=5m'
+        - '--web.external-url=https://alertmanager.cybersentinel.company.com'
+        - '--web.route-prefix=/'
+        - '--log.level=info'
+        - '--log.format=logfmt'
+        ports:
+        - name: web
+          containerPort: 9093
+          protocol: TCP
+        - name: cluster
+          containerPort: 9094
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: config
+          mountPath: /etc/alertmanager/config
+          readOnly: true
+        - name: templates
+          mountPath: /etc/alertmanager/templates
+          readOnly: true
+        - name: secrets
+          mountPath: /etc/alertmanager/secrets
+          readOnly: true
+        - name: storage
+          mountPath: /alertmanager
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9093
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9093
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+      volumes:
+      - name: config
+        configMap:
+          name: alertmanager-config
+      - name: templates
+        configMap:
+          name: alertmanager-templates
+      - name: secrets
+        secret:
+          secretName: alertmanager-secrets
+      - name: tmp
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: storage
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/component: monitoring
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: gp3
+      resources:
+        requests:
+          storage: 10Gi
+
+---
+# Headless service for StatefulSet clustering
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-headless
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+spec:
+  clusterIP: None
+  ports:
+  - name: web
+    port: 9093
+    targetPort: 9093
+    protocol: TCP
+  - name: cluster
+    port: 9094
+    targetPort: 9094
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+
+---
+# Regular service for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9093"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: web
+    port: 9093
+    targetPort: 9093
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+
+---
+# ServiceMonitor for Prometheus to scrape Alertmanager metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/component: monitoring
+  endpoints:
+  - port: web
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+# NetworkPolicy for Alertmanager
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alertmanager-network-policy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/component: monitoring
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow Prometheus to scrape metrics
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9093
+  # Allow Grafana to access Alertmanager API
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: grafana
+    ports:
+    - protocol: TCP
+      port: 9093
+  # Allow cluster communication between Alertmanager instances
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: alertmanager
+    ports:
+    - protocol: TCP
+      port: 9094
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow HTTPS for webhooks (Slack, PagerDuty)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow SMTP for email notifications
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 587
+    - protocol: TCP
+      port: 25
+  # Allow cluster communication
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: alertmanager
+    ports:
+    - protocol: TCP
+      port: 9094

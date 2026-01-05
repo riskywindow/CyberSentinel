@@ -1,0 +1,251 @@
+# External DNS Helm Values
+# This configures External DNS for automatic DNS record management with Route53
+
+# Global configuration
+global:
+  # AWS account ID - will be populated by Terraform
+  awsAccountId: ""
+  # AWS region
+  region: "us-west-2"
+  # Environment name (dev, staging, prod)
+  environment: ""
+  # Project name
+  projectName: "cybersentinel"
+  # Domain name
+  domain: ""
+  # Route53 Hosted Zone ID - will be populated by Terraform
+  hostedZoneId: ""
+
+# External DNS configuration
+external-dns:
+  # Image configuration
+  image:
+    repository: k8s.gcr.io/external-dns/external-dns
+    tag: v0.13.6
+    pullPolicy: IfNotPresent
+
+  # Replica configuration - should be 1 to avoid conflicts
+  replicaCount: 1
+
+  # Service Account configuration with IRSA
+  serviceAccount:
+    create: true
+    name: external-dns
+    annotations:
+      # IRSA role ARN - populated by Terraform
+      eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/{{ .Values.global.projectName }}-{{ .Values.global.environment }}-external-dns"
+
+  # Provider configuration
+  provider: aws
+
+  # AWS Route53 configuration
+  aws:
+    region: "{{ .Values.global.region }}"
+    zoneType: public
+    # Assume role via IRSA (no explicit credentials needed)
+    assumeRole: ""
+    # Zone tags for filtering
+    zoneTags: []
+    # Prefer CNAME records
+    preferCNAME: false
+    # Batch changes
+    batchChangeSize: 1000
+
+  # Domain filter - restrict to managed domains
+  domainFilters:
+    - "{{ .Values.global.domain }}"
+
+  # Zone ID filter - restrict to specific hosted zones
+  zoneIdFilters:
+    - "{{ .Values.global.hostedZoneId }}"
+
+  # Source configuration - what resources to monitor
+  sources:
+    - service
+    - ingress
+    # Uncomment for additional sources
+    # - crd
+    # - istio-gateway
+    # - istio-virtualservice
+
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  # Node selector for system nodes
+  nodeSelector:
+    role: "system"
+
+  # Tolerations for system nodes
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 65534
+
+  # DNS policy and configuration
+  policy: upsert-only  # Only create/update, never delete
+  registry: txt        # Use TXT records for ownership
+  txtOwnerId: "{{ .Values.global.projectName }}-{{ .Values.global.environment }}"
+  txtPrefix: "external-dns-"
+
+  # Interval for DNS synchronization
+  interval: 1m
+
+  # Trigger loop on events
+  triggerLoopOnEvent: false
+
+  # Log configuration
+  logLevel: info
+  logFormat: text
+
+  # Metrics configuration
+  metrics:
+    enabled: true
+    port: 7979
+    # Service monitor for Prometheus
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      interval: 30s
+      labels:
+        environment: "{{ .Values.global.environment }}"
+
+  # Additional labels
+  extraLabels:
+    app.kubernetes.io/component: "dns-manager"
+    app.kubernetes.io/part-of: "cybersentinel"
+    environment: "{{ .Values.global.environment }}"
+
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: false  # Single replica, no PDB needed
+
+  # Liveness and readiness probes
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 2
+    successThreshold: 1
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  # Additional arguments
+  extraArgs:
+    # AWS specific settings
+    - --aws-batch-change-size=1000
+    - --aws-batch-change-interval=1s
+    # DNS settings
+    - --txt-cache-interval=0  # Disable TXT cache for immediate updates
+    # Annotation filters
+    - --annotation-filter=external-dns.alpha.kubernetes.io/exclude!=true
+
+  # Annotation filters - only manage resources with specific annotations
+  annotationFilter: ""
+
+  # Environment variables
+  extraEnv:
+    - name: AWS_REGION
+      value: "{{ .Values.global.region }}"
+    - name: AWS_DEFAULT_REGION
+      value: "{{ .Values.global.region }}"
+
+  # Volume mounts for additional configuration
+  extraVolumes: []
+  extraVolumeMounts: []
+
+# Environment-specific overrides
+environments:
+  dev:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 25m
+        memory: 32Mi
+    logLevel: debug
+    interval: 2m  # Less frequent updates in dev
+    policy: sync  # Allow deletion in dev for testing
+    
+  staging:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 150m
+        memory: 192Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    logLevel: info
+    interval: 1m
+    policy: upsert-only
+    
+  prod:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 300m
+        memory: 384Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    logLevel: info
+    interval: 30s  # More frequent updates in prod
+    policy: upsert-only  # Never delete in production
+    # Additional safety in production
+    extraArgs:
+      - --aws-batch-change-size=500  # Smaller batches
+      - --aws-batch-change-interval=2s
+      - --txt-cache-interval=60s    # Cache TXT records for stability
+
+# RBAC configuration
+rbac:
+  create: true
+  # Additional permissions if needed
+  additionalPermissions: []
+
+# Service configuration
+service:
+  enabled: true
+  type: ClusterIP
+  port: 7979
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "7979"
+    prometheus.io/path: "/metrics"

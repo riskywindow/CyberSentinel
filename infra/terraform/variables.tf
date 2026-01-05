@@ -1,5 +1,16 @@
 # CyberSentinel Infrastructure - Variables
 
+variable "project_name" {
+  description = "Name of the project/application"
+  type        = string
+  default     = "cybersentinel"
+  
+  validation {
+    condition     = can(regex("^[a-z0-9-]+$", var.project_name))
+    error_message = "Project name must be lowercase alphanumeric with hyphens only."
+  }
+}
+
 variable "aws_region" {
   description = "AWS region for resources"
   type        = string

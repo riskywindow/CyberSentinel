@@ -1,0 +1,336 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-agents
+  namespace: monitoring
+data:
+  cybersentinel-agents.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel Agent Services",
+        "tags": ["cybersentinel", "agents"],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Agent Health Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "up{job=\"cybersentinel-agents\"}",
+                "legendFormat": "{{component}} - {{instance}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"options": {"0": {"text": "Down", "color": "red"}}, "type": "value"},
+                  {"options": {"1": {"text": "Up", "color": "green"}}, "type": "value"}
+                ]
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Detection Rate (Scout)",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(detections_total{component=\"scout\"}[5m])",
+                "legendFormat": "detections/sec"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps",
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": null},
+                    {"color": "yellow", "value": 0.1},
+                    {"color": "green", "value": 1.0}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Analysis Throughput (Analyst)",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(analysis_completed_total{component=\"analyst\"}[5m])",
+                "legendFormat": "analyses/sec"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps"
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+          },
+          {
+            "id": 4,
+            "title": "Agent CPU Usage",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{pod=~\"cybersentinel-.*\"}[5m]) * 100",
+                "legendFormat": "{{pod}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+          },
+          {
+            "id": 5,
+            "title": "Agent Memory Usage",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{pod=~\"cybersentinel-.*\"} / 1024 / 1024",
+                "legendFormat": "{{pod}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "MB"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          },
+          {
+            "id": 6,
+            "title": "Response Actions (Responder)",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(response_actions_total{component=\"responder\"}[5m])",
+                "legendFormat": "{{action_type}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          }
+        ]
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-tracing
+  namespace: monitoring
+data:
+  cybersentinel-tracing.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel Distributed Tracing",
+        "tags": ["cybersentinel", "tracing", "tempo"],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Trace Ingestion Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(tempo_ingester_traces_created_total[5m])",
+                "legendFormat": "traces/sec"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps"
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Service Request Rate",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=~\"cybersentinel-.*\"}[5m])",
+                "legendFormat": "{{service}} - {{method}} {{status}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 18, "x": 6, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Service Response Times (P95)",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\"cybersentinel-.*\"}[5m]))",
+                "legendFormat": "{{service}} P95"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "s"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Error Rate by Service",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=~\"cybersentinel-.*\",status=~\"5..\"}[5m]) / rate(http_requests_total{job=~\"cybersentinel-.*\"}[5m])",
+                "legendFormat": "{{service}} error rate"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "max": 1.0
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          },
+          {
+            "id": 5,
+            "title": "Top Slowest Operations",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "topk(10, histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\"cybersentinel-.*\"}[5m])))",
+                "legendFormat": "{{service}} {{method}} {{route}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          }
+        ]
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-autoscaling
+  namespace: monitoring
+data:
+  cybersentinel-autoscaling.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel Autoscaling & Performance",
+        "tags": ["cybersentinel", "autoscaling", "hpa"],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "HPA Target vs Current Replicas",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_target_metric{hpa=~\"cybersentinel-.*\"}",
+                "legendFormat": "{{hpa}} target"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_status_current_replicas{hpa=~\"cybersentinel-.*\"}",
+                "legendFormat": "{{hpa}} current"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "HPA Scaling Events",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "increase(kube_hpa_status_condition{hpa=~\"cybersentinel-.*\",condition=\"ScalingActive\"}[5m])",
+                "legendFormat": "{{hpa}} scaling events"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "CPU Utilization vs HPA Targets",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{pod=~\"cybersentinel-.*\"}[5m]) * 100",
+                "legendFormat": "{{pod}} actual CPU %"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_target_metric{hpa=~\"cybersentinel-.*\",metric_name=\"cpu\"} * 100",
+                "legendFormat": "{{hpa}} CPU target %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Memory Utilization vs HPA Targets",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{pod=~\"cybersentinel-.*\"} / container_spec_memory_limit_bytes{pod=~\"cybersentinel-.*\"} * 100",
+                "legendFormat": "{{pod}} actual memory %"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_target_metric{hpa=~\"cybersentinel-.*\",metric_name=\"memory\"} * 100",
+                "legendFormat": "{{hpa}} memory target %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          },
+          {
+            "id": 5,
+            "title": "Pod Scaling Timeline",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "kube_deployment_status_replicas{deployment=~\"cybersentinel-.*\"}",
+                "legendFormat": "{{deployment}} replicas"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          }
+        ]
+      }
+    }

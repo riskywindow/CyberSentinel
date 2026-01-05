@@ -1,0 +1,273 @@
+{{- if .Values.evaluation.enabled }}
+{{- if eq .Values.evaluation.deploymentType "deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-evaluation
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+spec:
+  replicas: {{ .Values.evaluation.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: evaluation
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.monitoring.tracing.enabled }}
+        sidecar.opentelemetry.io/inject: "true"
+        {{- end }}
+      labels:
+        {{- include "cybersentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: evaluation
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cybersentinel.serviceAccountName" . }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext:
+        {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      {{- if .Values.initContainers }}
+      initContainers:
+        {{- range .Values.initContainers }}
+        - name: {{ .name }}
+          image: {{ .image }}
+          {{- if .command }}
+          command: {{ .command | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if .env }}
+          env:
+            {{- toYaml .env | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      containers:
+      - name: evaluation
+        image: "{{ .Values.evaluation.image.repository }}:{{ .Values.evaluation.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.evaluation.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8005
+          protocol: TCP
+        - name: metrics
+          containerPort: 9005
+          protocol: TCP
+        env:
+        {{- if .Values.monitoring.tracing.enabled }}
+        {{- include "cybersentinel.otelEnv" . | nindent 8 }}
+        {{- end }}
+        # Evaluation specific environment variables
+        - name: COMPONENT
+          value: "evaluation"
+        - name: SERVICE_NAME
+          value: "cybersentinel-evaluation"
+        - name: EVALUATION_MODE
+          value: {{ .Values.evaluation.mode | default "continuous" | quote }}
+        - name: SCENARIO_SUITE_PATH
+          value: "/app/scenarios"
+        - name: REPORT_OUTPUT_PATH
+          value: "/app/reports"
+        - name: MAX_CONCURRENT_SCENARIOS
+          value: {{ .Values.evaluation.maxConcurrentScenarios | default "5" | quote }}
+        - name: SCENARIO_TIMEOUT
+          value: {{ .Values.evaluation.scenarioTimeout | default "600" | quote }}
+        - name: REPORT_RETENTION_DAYS
+          value: {{ .Values.evaluation.reportRetention | default "30" | quote }}
+        - name: PERFORMANCE_BASELINE_ENABLED
+          value: {{ .Values.evaluation.performanceBaseline.enabled | default "true" | quote }}
+        - name: METRICS_COLLECTION_ENABLED
+          value: {{ .Values.evaluation.metricsCollection.enabled | default "true" | quote }}
+        # Configuration and secrets
+        - name: CONFIG_PATH
+          value: "/app/config"
+        envFrom:
+        - configMapRef:
+            name: {{ include "cybersentinel.configMapName" . }}
+        - secretRef:
+            name: {{ include "cybersentinel.fullname" . }}-secrets
+            optional: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.evaluation.resources | nindent 10 }}
+        {{- if .Values.securityContext }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: scenario-suite
+          mountPath: /app/scenarios
+          readOnly: true
+        - name: reports-storage
+          mountPath: /app/reports
+        - name: test-data
+          mountPath: /app/data/test
+        {{- if .Values.persistence.enabled }}
+        - name: evaluation-storage
+          mountPath: /app/data/persistent
+        {{- end }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "cybersentinel.configMapName" . }}
+      - name: scenario-suite
+        configMap:
+          name: {{ include "cybersentinel.fullname" . }}-evaluation-scenarios
+          optional: true
+      - name: reports-storage
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "cybersentinel.fullname" . }}-evaluation-reports-pvc
+        {{- else }}
+        emptyDir:
+          sizeLimit: 5Gi
+        {{- end }}
+      - name: test-data
+        emptyDir:
+          sizeLimit: 2Gi
+      {{- if .Values.persistence.enabled }}
+      - name: evaluation-storage
+        persistentVolumeClaim:
+          claimName: {{ include "cybersentinel.fullname" . }}-evaluation-pvc
+      {{- end }}
+      {{- with .Values.evaluation.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.evaluation.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.evaluation.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- else if eq .Values.evaluation.deploymentType "cronjob" }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-evaluation-cron
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+spec:
+  schedule: {{ .Values.evaluation.schedule | default "0 2 * * *" | quote }}
+  timeZone: {{ .Values.evaluation.timezone | default "UTC" | quote }}
+  concurrencyPolicy: {{ .Values.evaluation.concurrencyPolicy | default "Forbid" }}
+  successfulJobsHistoryLimit: {{ .Values.evaluation.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.evaluation.failedJobsHistoryLimit | default 1 }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          annotations:
+            checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+          labels:
+            {{- include "cybersentinel.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: evaluation
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "cybersentinel.serviceAccountName" . }}
+          {{- if .Values.podSecurityContext.enabled }}
+          securityContext:
+            {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          containers:
+          - name: evaluation
+            image: "{{ .Values.evaluation.image.repository }}:{{ .Values.evaluation.image.tag | default .Chart.AppVersion }}"
+            imagePullPolicy: {{ .Values.evaluation.image.pullPolicy }}
+            command: ["/app/evaluation", "--mode", "batch", "--scenarios", "/app/scenarios"]
+            env:
+            # Evaluation specific environment variables  
+            - name: COMPONENT
+              value: "evaluation"
+            - name: SERVICE_NAME
+              value: "cybersentinel-evaluation"
+            - name: EVALUATION_MODE
+              value: "batch"
+            - name: SCENARIO_SUITE_PATH
+              value: "/app/scenarios"
+            - name: REPORT_OUTPUT_PATH
+              value: "/app/reports"
+            - name: MAX_CONCURRENT_SCENARIOS
+              value: {{ .Values.evaluation.maxConcurrentScenarios | default "5" | quote }}
+            - name: SCENARIO_TIMEOUT
+              value: {{ .Values.evaluation.scenarioTimeout | default "600" | quote }}
+            envFrom:
+            - configMapRef:
+                name: {{ include "cybersentinel.configMapName" . }}
+            - secretRef:
+                name: {{ include "cybersentinel.fullname" . }}-secrets
+                optional: true
+            resources:
+              {{- toYaml .Values.evaluation.resources | nindent 14 }}
+            {{- if .Values.securityContext }}
+            securityContext:
+              {{- toYaml .Values.securityContext | nindent 14 }}
+            {{- end }}
+            volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: scenario-suite
+              mountPath: /app/scenarios
+              readOnly: true
+            - name: reports-storage
+              mountPath: /app/reports
+          volumes:
+          - name: config
+            configMap:
+              name: {{ include "cybersentinel.configMapName" . }}
+          - name: scenario-suite
+            configMap:
+              name: {{ include "cybersentinel.fullname" . }}-evaluation-scenarios
+              optional: true
+          - name: reports-storage
+            {{- if .Values.persistence.enabled }}
+            persistentVolumeClaim:
+              claimName: {{ include "cybersentinel.fullname" . }}-evaluation-reports-pvc
+            {{- else }}
+            emptyDir: {}
+            {{- end }}
+          {{- with .Values.evaluation.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.evaluation.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.evaluation.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

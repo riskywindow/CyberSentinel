@@ -1,0 +1,515 @@
+---
+# Enhanced Network Policies for CyberSentinel
+# These policies supplement the existing NetworkPolicies with additional security features
+
+# Global Default Deny All Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: global-default-deny-all
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "default-deny"
+    app.kubernetes.io/part-of: "cybersentinel"
+    app.kubernetes.io/component: "security"
+  annotations:
+    security.cybersentinel.io/description: "Global default deny policy - all traffic must be explicitly allowed"
+spec:
+  podSelector: {}  # Applies to all pods in namespace
+  policyTypes:
+    - Ingress
+    - Egress
+  # Empty rules = deny all
+
+---
+# Inter-namespace Communication Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inter-namespace-communication
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "inter-namespace"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/inter-namespace: "allowed"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from monitoring for metrics collection
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080  # Metrics port
+        - protocol: TCP
+          port: 9000  # Secondary metrics port
+    
+    # Allow ingress from external-secrets for secret management
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: external-secrets-system
+      ports:
+        - protocol: TCP
+          port: 8443  # Webhook port
+  
+  egress:
+    # Allow egress to external-secrets for secret retrieval
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: external-secrets-system
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# Metadata Service Protection Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "metadata-protection"
+    app.kubernetes.io/part-of: "cybersentinel"
+  annotations:
+    security.cybersentinel.io/description: "Block direct access to AWS metadata service"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Block AWS metadata service
+    - to: []
+      ports: []
+    # This is implemented via destination CIDR blocking in the ingress controller
+    # The actual blocking is done at the node level via iptables rules
+
+---
+# Database Access Policy (Enhanced)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-access-enhanced
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "database-access"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/database-access: "required"
+  policyTypes:
+    - Egress
+  egress:
+    # PostgreSQL (RDS)
+    - to: []  # External RDS instance
+      ports:
+        - protocol: TCP
+          port: 5432
+    
+    # Redis (ElastiCache)
+    - to: []  # External ElastiCache instance
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 6380  # SSL port
+    
+    # ClickHouse
+    - to: []  # External ClickHouse instance
+      ports:
+        - protocol: TCP
+          port: 8123  # HTTP
+        - protocol: TCP
+          port: 9000  # Native protocol
+        - protocol: TCP
+          port: 9440  # HTTPS
+    
+    # Neo4j
+    - to: []  # External Neo4j instance
+      ports:
+        - protocol: TCP
+          port: 7687  # Bolt
+        - protocol: TCP
+          port: 7473  # HTTPS
+
+---
+# External API Access Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: external-api-access
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "external-api"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/external-api: "required"
+  policyTypes:
+    - Egress
+  egress:
+    # HTTPS for external APIs (OpenAI, Slack, PagerDuty, etc.)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    
+    # HTTP for specific APIs that might not support HTTPS
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+    
+    # SMTP for email notifications (if needed)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 587  # SMTP with STARTTLS
+        - protocol: TCP
+          port: 465  # SMTPS
+
+---
+# Internal Service Communication Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: internal-service-communication
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "internal-communication"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/internal-communication: "enabled"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow communication between CyberSentinel components
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: "cybersentinel"
+      ports:
+        # API service
+        - protocol: TCP
+          port: 8000
+        # Agent services
+        - protocol: TCP
+          port: 8001  # Scout
+        - protocol: TCP
+          port: 8002  # Analyst
+        - protocol: TCP
+          port: 8003  # Responder
+        # Additional services
+        - protocol: TCP
+          port: 8004  # Red Team Simulator
+        - protocol: TCP
+          port: 8005  # Evaluation Harness
+  
+  egress:
+    # Allow communication to other CyberSentinel components
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: "cybersentinel"
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+        - protocol: TCP
+          port: 8003
+        - protocol: TCP
+          port: 8004
+        - protocol: TCP
+          port: 8005
+    
+    # NATS messaging
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: "nats"
+      ports:
+        - protocol: TCP
+          port: 4222  # NATS
+        - protocol: TCP
+          port: 6222  # NATS monitoring
+        - protocol: TCP
+          port: 8222  # NATS HTTP monitoring
+
+---
+# Monitoring Access Policy (Enhanced)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-access-enhanced
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "monitoring"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/monitoring: "enabled"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8080  # Metrics port
+        - protocol: TCP
+          port: 9000  # Secondary metrics
+    
+    # Grafana dashboards
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - protocol: TCP
+          port: 8080
+  
+  egress:
+    # OpenTelemetry collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4318  # OTLP HTTP
+        - protocol: TCP
+          port: 4317  # OTLP gRPC
+        - protocol: TCP
+          port: 14250  # Jaeger gRPC
+    
+    # Loki for logs
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+
+---
+# Load Balancer Traffic Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: load-balancer-traffic
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "load-balancer"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/load-balancer-target: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from AWS Load Balancer Controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+      ports:
+        - protocol: TCP
+          port: 3000  # UI
+        - protocol: TCP
+          port: 8000  # API
+    
+    # Allow health checks from ALB
+    - from: []  # ALB health checks come from AWS IP ranges
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 8000
+
+---
+# Emergency Access Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: emergency-access
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "emergency"
+    app.kubernetes.io/part-of: "cybersentinel"
+  annotations:
+    security.cybersentinel.io/description: "Emergency access policy - use only during incidents"
+    security.cybersentinel.io/approval-required: "true"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/emergency-access: "enabled"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Emergency administrative access
+    - from:
+        - podSelector:
+            matchLabels:
+              security.cybersentinel.io/role: "admin"
+      ports:
+        - protocol: TCP
+          port: 22    # SSH (if enabled in emergency)
+        - protocol: TCP
+          port: 8000  # API admin endpoints
+  
+  egress:
+    # Emergency external communication
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+---
+# Development Environment Relaxed Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: development-relaxed
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "development"
+    app.kubernetes.io/part-of: "cybersentinel"
+    security.cybersentinel.io/environment: "dev"
+  annotations:
+    security.cybersentinel.io/description: "Relaxed policy for development environment"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/environment: "dev"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow more permissive access in development
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8080
+  
+  egress:
+    # Allow broader egress in development
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 3000
+
+---
+# Production Environment Strict Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: production-strict
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "production"
+    app.kubernetes.io/part-of: "cybersentinel"
+    security.cybersentinel.io/environment: "prod"
+  annotations:
+    security.cybersentinel.io/description: "Strict policy for production environment"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/environment: "prod"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Strict ingress rules for production
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 9000
+  
+  egress:
+    # Restricted egress for production
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS only
+    # DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+    # Internal services only
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: "cybersentinel"
+    # Monitoring
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring

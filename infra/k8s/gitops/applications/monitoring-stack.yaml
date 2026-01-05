@@ -1,0 +1,412 @@
+---
+# Monitoring Stack Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-stack
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: monitoring-stack
+    app.kubernetes.io/component: infrastructure
+    app.kubernetes.io/part-of: cybersentinel
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  source:
+    repoURL: https://github.com/cybersentinel/cybersentinel
+    targetRevision: main
+    path: infra/k8s/monitoring
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+  
+  revisionHistoryLimit: 10
+  
+  info:
+  - name: "Components"
+    value: "Prometheus, Grafana, Alertmanager, Loki, Tempo"
+  - name: "Environment"
+    value: "All"
+
+---
+# External Secrets Operator Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets-operator
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: external-secrets-operator
+    app.kubernetes.io/component: infrastructure
+    app.kubernetes.io/part-of: cybersentinel
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  source:
+    repoURL: https://charts.external-secrets.io
+    targetRevision: 0.9.5
+    chart: external-secrets
+    helm:
+      values: |
+        installCRDs: true
+        serviceMonitor:
+          enabled: true
+        webhook:
+          create: true
+        certController:
+          create: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 65534
+          capabilities:
+            drop:
+            - ALL
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets-system
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    - Replace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  
+  revisionHistoryLimit: 5
+  
+  info:
+  - name: "Chart Version"
+    value: "0.9.5"
+  - name: "Purpose"
+    value: "Secret Management"
+
+---
+# cert-manager Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: infrastructure
+    app.kubernetes.io/part-of: cybersentinel
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  source:
+    repoURL: https://charts.jetstack.io
+    targetRevision: v1.13.1
+    chart: cert-manager
+    helm:
+      values: |
+        installCRDs: true
+        serviceMonitor:
+          enabled: true
+        prometheus:
+          enabled: true
+        webhook:
+          securePort: 10250
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+        webhook:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+        cainjector:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    - Replace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  
+  revisionHistoryLimit: 5
+  
+  info:
+  - name: "Chart Version"
+    value: "v1.13.1"
+  - name: "Purpose"
+    value: "TLS Certificate Management"
+
+---
+# AWS Load Balancer Controller Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: aws-load-balancer-controller
+    app.kubernetes.io/component: infrastructure
+    app.kubernetes.io/part-of: cybersentinel
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  source:
+    repoURL: https://aws.github.io/eks-charts
+    targetRevision: 1.6.2
+    chart: aws-load-balancer-controller
+    helm:
+      parameters:
+      - name: clusterName
+        value: "${CLUSTER_NAME}"
+      - name: serviceAccount.create
+        value: "true"
+      - name: serviceAccount.name
+        value: "aws-load-balancer-controller"
+      - name: serviceAccount.annotations.eks\.amazonaws\.com/role-arn
+        value: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/cybersentinel-${ENVIRONMENT}-alb-controller-role"
+      values: |
+        replicaCount: 2
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        nodeSelector:
+          kubernetes.io/os: linux
+        tolerations: []
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                    - aws-load-balancer-controller
+                topologyKey: kubernetes.io/hostname
+        serviceMonitor:
+          enabled: true
+        enableServiceMutatorWebhook: true
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true
+    - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+  
+  revisionHistoryLimit: 5
+  
+  info:
+  - name: "Chart Version"
+    value: "1.6.2"
+  - name: "Purpose"
+    value: "ALB/NLB Management"
+
+---
+# Velero Backup Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero-backup
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: velero-backup
+    app.kubernetes.io/component: infrastructure
+    app.kubernetes.io/part-of: cybersentinel
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  
+  sources:
+  # Velero Helm Chart
+  - repoURL: https://vmware-tanzu.github.io/helm-charts
+    targetRevision: 5.1.0
+    chart: velero
+    helm:
+      parameters:
+      - name: serviceAccount.server.create
+        value: "true"
+      - name: serviceAccount.server.name
+        value: "velero"
+      - name: serviceAccount.server.annotations.eks\.amazonaws\.com/role-arn
+        value: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/cybersentinel-${ENVIRONMENT}-velero-role"
+      values: |
+        configuration:
+          backupStorageLocation:
+            bucket: cybersentinel-${ENVIRONMENT}-backup
+            config:
+              region: ${AWS_REGION}
+          volumeSnapshotLocation:
+            config:
+              region: ${AWS_REGION}
+          provider: aws
+        credentials:
+          useSecret: false
+        initContainers:
+        - name: velero-plugin-for-aws
+          image: velero/velero-plugin-for-aws:v1.8.0
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+          - mountPath: /target
+            name: plugins
+        resources:
+          requests:
+            cpu: 500m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        serviceMonitor:
+          enabled: true
+        schedules:
+          daily-backup:
+            disabled: false
+            schedule: "0 1 * * *"
+            template:
+              ttl: "720h"
+              includedNamespaces:
+              - cybersentinel
+              - cybersentinel-dev
+              - cybersentinel-staging
+              - monitoring
+  
+  # Custom Velero configurations
+  - repoURL: https://github.com/cybersentinel/cybersentinel
+    targetRevision: main
+    path: infra/backup
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+    - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  
+  revisionHistoryLimit: 5
+  
+  info:
+  - name: "Chart Version"
+    value: "5.1.0"
+  - name: "Purpose"
+    value: "Cluster Backup & Recovery"

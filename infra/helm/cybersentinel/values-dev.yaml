@@ -1,0 +1,411 @@
+# CyberSentinel Helm Chart Values - Development Environment
+
+global:
+  imageRegistry: "ghcr.io"
+  imagePullSecrets: []
+  storageClass: "gp3"
+
+# Application configuration
+app:
+  name: cybersentinel
+  version: "1.0.0"
+  environment: "dev"
+
+# Service Account Configuration with IRSA
+serviceAccount:
+  create: true
+  automount: true
+  annotations:
+    # Will be populated by Terraform outputs
+    eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/cybersentinel-dev-workload-role"
+  name: ""
+
+# Secrets Configuration (External Secrets in production)
+secrets:
+  jwtSecret: "dev-jwt-secret-changeme"
+  apiKey: "dev-api-key-changeme"
+  postgres:
+    user: "cybersentinel_dev"
+    password: "dev-password-changeme"
+  redis:
+    authToken: "dev-redis-token-changeme"
+  clickhouse:
+    password: "dev-clickhouse-password-changeme"
+  neo4j:
+    password: "dev-neo4j-password-changeme"
+
+# API Service Configuration - Development sizing
+api:
+  enabled: true
+  replicaCount: 1  # Single replica for dev
+  image:
+    repository: ghcr.io/cybersentinel/api
+    tag: "latest"
+    pullPolicy: Always  # Always pull latest in dev
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    annotations: {}
+  
+  resources:
+    limits:
+      cpu: 500m      # Reduced for dev
+      memory: 1Gi    # Reduced for dev
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  autoscaling:
+    enabled: false  # Disabled in dev
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  env:
+    - name: ENVIRONMENT
+      value: "dev"
+    - name: LOG_LEVEL
+      value: "DEBUG"  # Verbose logging in dev
+    - name: WORKERS
+      value: "2"      # Fewer workers in dev
+
+# UI Service Configuration - Development sizing
+ui:
+  enabled: true
+  replicaCount: 1  # Single replica for dev
+  image:
+    repository: ghcr.io/cybersentinel/ui
+    tag: "latest"
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    annotations: {}
+  
+  resources:
+    limits:
+      cpu: 250m      # Reduced for dev
+      memory: 512Mi  # Reduced for dev
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  
+  autoscaling:
+    enabled: false  # Disabled in dev
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  env: []
+
+# Agent Services Configuration - Development sizing
+agents:
+  scout:
+    enabled: true
+    replicaCount: 1  # Single replica for dev
+    image:
+      repository: ghcr.io/cybersentinel/scout-agent
+      tag: "latest"
+      pullPolicy: Always
+    resources:
+      limits:
+        cpu: 250m      # Reduced for dev
+        memory: 512Mi  # Reduced for dev
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    autoscaling:
+      enabled: false  # Disabled in dev
+      minReplicas: 1
+      maxReplicas: 2
+      targetCPUUtilizationPercentage: 65
+      targetMemoryUtilizationPercentage: 75
+    dedupThreshold: "0.8"
+    alertWindowHours: "1"
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  
+  analyst:
+    enabled: true
+    replicaCount: 1  # Single replica for dev
+    image:
+      repository: ghcr.io/cybersentinel/analyst-agent
+      tag: "latest"
+      pullPolicy: Always
+    resources:
+      limits:
+        cpu: 500m      # Reduced for dev
+        memory: 1Gi    # Reduced for dev
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    autoscaling:
+      enabled: false  # Disabled in dev
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    confidenceThreshold: "0.7"
+    maxHypothesisEntities: "50"
+    sigmaValidation: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  
+  responder:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ghcr.io/cybersentinel/responder-agent
+      tag: "latest"
+      pullPolicy: Always
+    resources:
+      limits:
+        cpu: 250m      # Reduced for dev
+        memory: 512Mi  # Reduced for dev
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    autoscaling:
+      enabled: false  # Disabled for critical single-replica service
+      minReplicas: 1
+      maxReplicas: 2
+      targetCPUUtilizationPercentage: 75
+      targetMemoryUtilizationPercentage: 85
+    playbookTimeoutSeconds: 600
+    maxConcurrentPlaybooks: 3  # Reduced for dev
+    dryRunMode: true  # Safe mode in dev
+    riskAssessment:
+      enabled: true
+      autoApproveLowRisk: true
+      requireApprovalHighRisk: true
+    audit:
+      enabled: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+# Red Team Simulator Configuration - Disabled in dev by default
+redteam:
+  enabled: false  # Disabled in dev to save resources
+  replicaCount: 1
+  image:
+    repository: ghcr.io/cybersentinel/redteam-simulator
+    tag: "latest"
+    pullPolicy: Always
+  resources:
+    limits:
+      cpu: 500m      # Reduced for dev
+      memory: 1Gi    # Reduced for dev
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  simulationInterval: "600"  # Less frequent in dev
+  campaignIntensity: "low"   # Low intensity in dev
+  maxConcurrentCampaigns: "1"
+  telemetryRateLimit: "100"  # Lower rate limit in dev
+
+# Evaluation Harness Configuration
+evaluation:
+  enabled: true
+  deploymentType: "deployment"
+  replicaCount: 1
+  image:
+    repository: ghcr.io/cybersentinel/evaluation-harness
+    tag: "latest"
+    pullPolicy: Always
+  resources:
+    limits:
+      cpu: 500m      # Reduced for dev
+      memory: 1Gi    # Reduced for dev
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# Ingress Configuration - Development domain
+ingress:
+  enabled: true
+  className: "alb"  # AWS Load Balancer Controller
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # Certificate will be managed by cert-manager in future PRs
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # Will be populated with ACM certificate ARN via Terraform
+    alb.ingress.kubernetes.io/certificate-arn: ""
+  hosts:
+    - host: dev.cybersentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: cybersentinel-ui
+            port: 3000
+        - path: /api
+          pathType: Prefix
+          service:
+            name: cybersentinel-api
+            port: 8000
+  tls:
+    - secretName: cybersentinel-tls-dev
+      hosts:
+        - dev.cybersentinel.example.com
+
+# Persistent Storage Configuration - Development sizing
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 5Gi  # Reduced for dev
+  storageClass: "gp3"
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "gp3"
+  # Service-specific storage sizes - all reduced for dev
+  faissIndexSize: "2Gi"
+  redteamSize: "2Gi"
+  evaluationSize: "2Gi"
+  evaluationReportsSize: "5Gi"
+
+# Monitoring Configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      environment: dev
+    annotations: {}
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+  tracing:
+    enabled: true
+    endpoint: "http://tempo:4318"
+    serviceName: "cybersentinel-dev"
+    samplingRatio: 0.5  # Higher sampling in dev
+  metrics:
+    enabled: true
+    port: 9000
+
+# Pod Disruption Budget - Relaxed for dev
+podDisruptionBudget:
+  enabled: false  # Disabled in dev (single replicas)
+
+# Network Policies - Relaxed in dev
+networkPolicy:
+  enabled: false  # Disabled in dev for easier debugging
+
+# RBAC Configuration
+rbac:
+  enabled: true
+  clusterRole:
+    enabled: false  # No cluster-level permissions in dev
+
+# Security Context - Same as production
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Pod Security Context
+podSecurityContext:
+  enabled: true
+  fsGroup: 1000
+
+# Resource Quotas - Smaller limits for dev
+resourceQuota:
+  enabled: true
+  hard:
+    # CPU and Memory - reduced for dev
+    requests.cpu: "2"
+    requests.memory: "4Gi"
+    limits.cpu: "4"
+    limits.memory: "8Gi"
+    # Storage - reduced for dev
+    persistentvolumeclaims: "5"
+    requests.storage: "20Gi"
+    # Kubernetes Objects - reduced for dev
+    pods: "20"
+    services: "10"
+    secrets: "10"
+    configmaps: "10"
+
+# Limit Ranges - Development appropriate
+limitRange:
+  enabled: true
+  limits:
+    - default:
+        cpu: "250m"      # Smaller defaults for dev
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "50m"
+        memory: "128Mi"
+      max:
+        cpu: "1000m"     # Lower max for dev
+        memory: "2Gi"
+      min:
+        cpu: "10m"
+        memory: "32Mi"
+      type: Container
+
+# External Dependencies - Development endpoints
+clickhouse:
+  enabled: false
+  external:
+    host: "cybersentinel-dev-clickhouse.cluster-xyz.us-west-2.rds.amazonaws.com"
+    port: 8123
+    database: "cybersentinel_dev"
+
+neo4j:
+  enabled: false
+  external:
+    host: "cybersentinel-dev-neo4j.cluster-xyz.us-west-2.rds.amazonaws.com"
+    port: 7687
+    database: "neo4j"
+
+redis:
+  enabled: false
+  external:
+    host: "cybersentinel-dev-redis.cluster.cache.amazonaws.com"
+    port: 6379
+
+nats:
+  enabled: true
+  nats:
+    jetstream:
+      enabled: true
+    resources:
+      limits:
+        cpu: 250m      # Reduced for dev
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+# Feature Flags - Development settings
+features:
+  graphVisualization: true
+  realTimeAnalysis: true
+  automatedResponse: false  # Disabled in dev for safety
+  threatIntelligence: true
+
+# Development-specific settings
+global:
+  awsAccountId: ""  # Will be populated by Terraform
+  domain: "dev.cybersentinel.example.com"
+  environment: "dev"
+  region: "us-west-2"

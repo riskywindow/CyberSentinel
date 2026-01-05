@@ -1,0 +1,363 @@
+---
+# CyberSentinel Main Project
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cybersentinel
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-project
+    app.kubernetes.io/component: gitops
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: "CyberSentinel Application Project - Main application components"
+  
+  # Git repositories that this project can deploy from
+  sourceRepos:
+  - 'https://github.com/cybersentinel/cybersentinel'
+  - 'https://github.com/cybersentinel/*'
+  
+  # Destinations where apps can be deployed to
+  destinations:
+  - namespace: 'cybersentinel'
+    server: 'https://kubernetes.default.svc'
+    name: 'in-cluster'
+  - namespace: 'cybersentinel-dev'
+    server: 'https://kubernetes.default.svc'
+    name: 'in-cluster'
+  - namespace: 'cybersentinel-staging'
+    server: 'https://kubernetes.default.svc'
+    name: 'in-cluster'
+  
+  # Cluster resource whitelist
+  clusterResourceWhitelist:
+  - group: ''
+    kind: Namespace
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRole
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRoleBinding
+  - group: networking.k8s.io
+    kind: NetworkPolicy
+  - group: policy
+    kind: PodSecurityPolicy
+  - group: apiextensions.k8s.io
+    kind: CustomResourceDefinition
+  - group: admissionregistration.k8s.io
+    kind: MutatingWebhookConfiguration
+  - group: admissionregistration.k8s.io
+    kind: ValidatingWebhookConfiguration
+  
+  # Namespace resource whitelist
+  namespaceResourceWhitelist:
+  - group: ''
+    kind: ConfigMap
+  - group: ''
+    kind: Secret
+  - group: ''
+    kind: Service
+  - group: ''
+    kind: ServiceAccount
+  - group: ''
+    kind: PersistentVolumeClaim
+  - group: apps
+    kind: Deployment
+  - group: apps
+    kind: StatefulSet
+  - group: apps
+    kind: DaemonSet
+  - group: apps
+    kind: ReplicaSet
+  - group: batch
+    kind: Job
+  - group: batch
+    kind: CronJob
+  - group: networking.k8s.io
+    kind: Ingress
+  - group: networking.k8s.io
+    kind: NetworkPolicy
+  - group: autoscaling
+    kind: HorizontalPodAutoscaler
+  - group: policy
+    kind: PodDisruptionBudget
+  - group: rbac.authorization.k8s.io
+    kind: Role
+  - group: rbac.authorization.k8s.io
+    kind: RoleBinding
+  - group: monitoring.coreos.com
+    kind: ServiceMonitor
+  - group: monitoring.coreos.com
+    kind: PodMonitor
+  - group: monitoring.coreos.com
+    kind: PrometheusRule
+  - group: external-secrets.io
+    kind: ExternalSecret
+  - group: external-secrets.io
+    kind: SecretStore
+  - group: external-secrets.io
+    kind: ClusterSecretStore
+  
+  # RBAC policies
+  roles:
+  # Admin role for project administrators
+  - name: project-admin
+    description: "Full access to CyberSentinel project"
+    policies:
+    - p, proj:cybersentinel:project-admin, applications, *, cybersentinel/*, allow
+    - p, proj:cybersentinel:project-admin, logs, get, cybersentinel/*, allow
+    - p, proj:cybersentinel:project-admin, exec, create, cybersentinel/*, allow
+    groups:
+    - cybersentinel:admins
+    - cybersentinel:platform-team
+  
+  # Developer role for development team
+  - name: developer
+    description: "Developer access to CyberSentinel applications"
+    policies:
+    - p, proj:cybersentinel:developer, applications, get, cybersentinel/*, allow
+    - p, proj:cybersentinel:developer, applications, create, cybersentinel/*, allow
+    - p, proj:cybersentinel:developer, applications, update, cybersentinel/*, allow
+    - p, proj:cybersentinel:developer, applications, sync, cybersentinel/*, allow
+    - p, proj:cybersentinel:developer, applications, delete, cybersentinel/cybersentinel-dev*, allow
+    - p, proj:cybersentinel:developer, applications, delete, cybersentinel/cybersentinel-staging*, allow
+    - p, proj:cybersentinel:developer, logs, get, cybersentinel/*, allow
+    groups:
+    - cybersentinel:developers
+    - cybersentinel:qa-team
+  
+  # Read-only role for observers
+  - name: readonly
+    description: "Read-only access to CyberSentinel applications"
+    policies:
+    - p, proj:cybersentinel:readonly, applications, get, cybersentinel/*, allow
+    - p, proj:cybersentinel:readonly, logs, get, cybersentinel/*, allow
+    groups:
+    - cybersentinel:viewers
+    - cybersentinel:security-team
+  
+  # Sync windows for controlled deployments
+  syncWindows:
+  # Production deployment windows
+  - kind: allow
+    schedule: "0 9-17 * * 1-5"  # 9 AM - 5 PM, Monday to Friday
+    duration: 8h
+    applications:
+    - cybersentinel-prod*
+    namespaces:
+    - cybersentinel
+    timeZone: "UTC"
+    manualSync: true
+  
+  # Maintenance window (no deployments)
+  - kind: deny
+    schedule: "0 0-6 * * *"  # Midnight to 6 AM every day
+    duration: 6h
+    applications:
+    - cybersentinel-prod*
+    namespaces:
+    - cybersentinel
+    timeZone: "UTC"
+    manualSync: false
+
+---
+# Infrastructure Project for platform components
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infrastructure
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: infrastructure-project
+    app.kubernetes.io/component: gitops
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: "Infrastructure Project - Platform and shared services"
+  
+  # Git repositories
+  sourceRepos:
+  - 'https://github.com/cybersentinel/cybersentinel'
+  - 'https://charts.external-secrets.io'
+  - 'https://aws.github.io/eks-charts'
+  - 'https://prometheus-community.github.io/helm-charts'
+  - 'https://grafana.github.io/helm-charts'
+  - 'https://jetstack.github.io/cert-manager'
+  - 'https://kubernetes.github.io/ingress-nginx'
+  - 'https://vmware-tanzu.github.io/helm-charts'
+  
+  # Destinations
+  destinations:
+  - namespace: 'monitoring'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'external-secrets-system'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'kube-system'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'cert-manager'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'velero'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'logging'
+    server: 'https://kubernetes.default.svc'
+  
+  # Cluster resource whitelist (broader for infrastructure)
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  
+  # RBAC policies
+  roles:
+  - name: infrastructure-admin
+    description: "Full access to infrastructure components"
+    policies:
+    - p, proj:infrastructure:infrastructure-admin, applications, *, infrastructure/*, allow
+    - p, proj:infrastructure:infrastructure-admin, logs, get, infrastructure/*, allow
+    - p, proj:infrastructure:infrastructure-admin, exec, create, infrastructure/*, allow
+    groups:
+    - cybersentinel:platform-team
+    - cybersentinel:sre-team
+  
+  - name: infrastructure-viewer
+    description: "Read-only access to infrastructure"
+    policies:
+    - p, proj:infrastructure:infrastructure-viewer, applications, get, infrastructure/*, allow
+    - p, proj:infrastructure:infrastructure-viewer, logs, get, infrastructure/*, allow
+    groups:
+    - cybersentinel:developers
+    - cybersentinel:security-team
+
+---
+# Security Project for security-specific applications
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: security
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: security-project
+    app.kubernetes.io/component: gitops
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: "Security Project - Security tools and configurations"
+  
+  # Git repositories
+  sourceRepos:
+  - 'https://github.com/cybersentinel/cybersentinel'
+  - 'https://github.com/cybersentinel/security-configs'
+  - 'https://charts.falco.org'
+  - 'https://trivy-operator.github.io/helm-charts'
+  
+  # Destinations
+  destinations:
+  - namespace: 'security'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'falco-system'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'trivy-system'
+    server: 'https://kubernetes.default.svc'
+  
+  # Limited cluster resources for security
+  clusterResourceWhitelist:
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRole
+  - group: rbac.authorization.k8s.io
+    kind: ClusterRoleBinding
+  - group: networking.k8s.io
+    kind: NetworkPolicy
+  - group: policy
+    kind: PodSecurityPolicy
+  - group: security.istio.io
+    kind: AuthorizationPolicy
+  - group: security.istio.io
+    kind: PeerAuthentication
+  
+  # Namespace resources
+  namespaceResourceWhitelist:
+  - group: ''
+    kind: ConfigMap
+  - group: ''
+    kind: Secret
+  - group: ''
+    kind: Service
+  - group: ''
+    kind: ServiceAccount
+  - group: apps
+    kind: Deployment
+  - group: apps
+    kind: DaemonSet
+  - group: networking.k8s.io
+    kind: NetworkPolicy
+  - group: rbac.authorization.k8s.io
+    kind: Role
+  - group: rbac.authorization.k8s.io
+    kind: RoleBinding
+  
+  # RBAC policies
+  roles:
+  - name: security-admin
+    description: "Full access to security applications"
+    policies:
+    - p, proj:security:security-admin, applications, *, security/*, allow
+    - p, proj:security:security-admin, logs, get, security/*, allow
+    groups:
+    - cybersentinel:security-team
+    - cybersentinel:platform-team
+  
+  - name: security-viewer
+    description: "Read-only access to security applications"
+    policies:
+    - p, proj:security:security-viewer, applications, get, security/*, allow
+    - p, proj:security:security-viewer, logs, get, security/*, allow
+    groups:
+    - cybersentinel:developers
+    - cybersentinel:compliance-team
+
+---
+# Default project restrictions
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: default-project
+    app.kubernetes.io/component: gitops
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: "Default project with limited permissions"
+  
+  # Very restricted source repos
+  sourceRepos:
+  - 'https://github.com/cybersentinel/sandbox'
+  
+  # Limited destinations
+  destinations:
+  - namespace: 'default'
+    server: 'https://kubernetes.default.svc'
+  - namespace: 'sandbox'
+    server: 'https://kubernetes.default.svc'
+  
+  # No cluster resources
+  clusterResourceWhitelist: []
+  
+  # Limited namespace resources
+  namespaceResourceWhitelist:
+  - group: ''
+    kind: ConfigMap
+  - group: ''
+    kind: Secret
+  - group: ''
+    kind: Service
+  - group: apps
+    kind: Deployment
+  - group: networking.k8s.io
+    kind: Ingress
+  
+  # RBAC policies
+  roles:
+  - name: sandbox-user
+    description: "Limited access for sandbox applications"
+    policies:
+    - p, proj:default:sandbox-user, applications, *, default/*, allow
+    groups:
+    - cybersentinel:interns
+    - cybersentinel:contractors

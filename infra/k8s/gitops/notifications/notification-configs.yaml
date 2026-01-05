@@ -1,0 +1,551 @@
+---
+# ArgoCD Notifications Secret
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: argocd-notifications-secret
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-notifications-secret
+    app.kubernetes.io/component: notifications
+    app.kubernetes.io/part-of: argocd
+spec:
+  secretStoreRef:
+    name: cybersentinel-aws-secrets
+    kind: SecretStore
+  target:
+    name: argocd-notifications-secret
+    creationPolicy: Owner
+  data:
+  - secretKey: slack-token
+    remoteRef:
+      key: cybersentinel-${ENVIRONMENT}-external-services
+      property: slack_bot_token
+  - secretKey: github-token
+    remoteRef:
+      key: cybersentinel-${ENVIRONMENT}-external-services
+      property: github_token
+  - secretKey: webhook-secret
+    remoteRef:
+      key: cybersentinel-${ENVIRONMENT}-external-services
+      property: webhook_secret
+  - secretKey: pagerduty-token
+    remoteRef:
+      key: cybersentinel-${ENVIRONMENT}-external-services
+      property: pagerduty_api_key
+
+---
+# Enhanced ArgoCD Notifications ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-notifications-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # Notification services configuration
+  service.slack: |
+    token: $slack-token
+    channels:
+      - name: general
+        slack-config:
+          channel: "#argocd-deployments"
+      - name: critical
+        slack-config:
+          channel: "#alerts-critical"
+      - name: dev
+        slack-config:
+          channel: "#dev-deployments"
+      - name: staging
+        slack-config:
+          channel: "#staging-deployments"
+      - name: prod
+        slack-config:
+          channel: "#prod-deployments"
+  
+  service.webhook.github: |
+    url: https://api.github.com/repos/cybersentinel/cybersentinel/dispatches
+    headers:
+    - name: Authorization
+      value: "Bearer $github-token"
+    - name: Accept
+      value: "application/vnd.github.v3+json"
+  
+  service.webhook.custom: |
+    url: http://webhook-service.argocd:8080/webhook
+    headers:
+    - name: Authorization
+      value: "Bearer $webhook-secret"
+    - name: X-ArgoCD-Webhook
+      value: "true"
+  
+  service.email: |
+    host: smtp.company.com
+    port: 587
+    from: argocd-notifications@company.com
+    username: $email-username
+    password: $email-password
+  
+  service.pagerduty: |
+    token: $pagerduty-token
+  
+  # Notification templates
+  template.app-deployed: |
+    email:
+      subject: "✅ {{.app.metadata.name}} deployed to {{.app.spec.destination.namespace}}"
+    message: |
+      {{if eq .serviceType "slack"}}:white_check_mark:{{end}} Application **{{.app.metadata.name}}** has been successfully deployed.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Namespace:* {{.app.spec.destination.namespace}}
+      *Revision:* {{.app.status.sync.revision}}
+      *Repository:* {{.app.spec.source.repoURL}}
+      *Path:* {{.app.spec.source.path}}
+      {{if .app.status.operationState.finishedAt}}*Finished:* {{.app.status.operationState.finishedAt}}{{end}}
+      {{end}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+          "color": "good",
+          "fields": [
+          {
+            "title": "Environment",
+            "value": "{{.app.metadata.labels.environment}}",
+            "short": true
+          },
+          {
+            "title": "Namespace",
+            "value": "{{.app.spec.destination.namespace}}",
+            "short": true
+          },
+          {
+            "title": "Sync Status",
+            "value": "{{.app.status.sync.status}}",
+            "short": true
+          },
+          {
+            "title": "Health Status",
+            "value": "{{.app.status.health.status}}",
+            "short": true
+          },
+          {
+            "title": "Revision",
+            "value": "{{.app.status.sync.revision}}",
+            "short": true
+          },
+          {
+            "title": "Repository",
+            "value": "{{.app.spec.source.repoURL}}",
+            "short": true
+          }
+          ]
+        }]
+  
+  template.app-health-degraded: |
+    email:
+      subject: "⚠️ {{.app.metadata.name}} health degraded in {{.app.spec.destination.namespace}}"
+    message: |
+      {{if eq .serviceType "slack"}}:warning:{{end}} Application **{{.app.metadata.name}}** has degraded health status.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Namespace:* {{.app.spec.destination.namespace}}
+      *Health Status:* {{.app.status.health.status}}
+      *Health Message:* {{.app.status.health.message}}
+      {{end}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+          "color": "warning",
+          "fields": [
+          {
+            "title": "Environment",
+            "value": "{{.app.metadata.labels.environment}}",
+            "short": true
+          },
+          {
+            "title": "Health Status",
+            "value": "{{.app.status.health.status}}",
+            "short": true
+          },
+          {
+            "title": "Health Message",
+            "value": "{{.app.status.health.message}}",
+            "short": false
+          }
+          ]
+        }]
+  
+  template.app-sync-failed: |
+    email:
+      subject: "❌ {{.app.metadata.name}} sync failed in {{.app.spec.destination.namespace}}"
+    message: |
+      {{if eq .serviceType "slack"}}:x:{{end}} Application **{{.app.metadata.name}}** sync operation failed.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Namespace:* {{.app.spec.destination.namespace}}
+      *Sync Status:* {{.app.status.sync.status}}
+      *Error Message:* {{.app.status.operationState.message}}
+      {{end}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+          "color": "danger",
+          "fields": [
+          {
+            "title": "Environment",
+            "value": "{{.app.metadata.labels.environment}}",
+            "short": true
+          },
+          {
+            "title": "Sync Status",
+            "value": "{{.app.status.sync.status}}",
+            "short": true
+          },
+          {
+            "title": "Operation State",
+            "value": "{{.app.status.operationState.phase}}",
+            "short": true
+          },
+          {
+            "title": "Error Message",
+            "value": "{{.app.status.operationState.message}}",
+            "short": false
+          }
+          ]
+        }]
+  
+  template.app-sync-running: |
+    message: |
+      {{if eq .serviceType "slack"}}:arrows_counterclockwise:{{end}} Application **{{.app.metadata.name}}** sync is running.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Operation:* {{.app.status.operationState.operation.sync.revision}}
+      *Started:* {{.app.status.operationState.startedAt}}
+      {{end}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+          "color": "#0099cc",
+          "fields": [
+          {
+            "title": "Environment",
+            "value": "{{.app.metadata.labels.environment}}",
+            "short": true
+          },
+          {
+            "title": "Operation",
+            "value": "Sync Running",
+            "short": true
+          },
+          {
+            "title": "Revision",
+            "value": "{{.app.status.operationState.operation.sync.revision}}",
+            "short": true
+          }
+          ]
+        }]
+  
+  template.app-sync-succeeded: |
+    message: |
+      {{if eq .serviceType "slack"}}:white_check_mark:{{end}} Application **{{.app.metadata.name}}** sync succeeded.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Revision:* {{.app.status.sync.revision}}
+      *Duration:* {{.app.status.operationState.finishedAt.Sub .app.status.operationState.startedAt}}
+      {{end}}
+  
+  # Rollout-specific templates
+  template.rollout-step-completed: |
+    message: |
+      {{if eq .serviceType "slack"}}:arrow_right:{{end}} Rollout **{{.app.metadata.name}}** completed step {{.rollout.status.currentStepIndex}}.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Strategy:* {{.rollout.spec.strategy}}
+      *Current Step:* {{.rollout.status.currentStepIndex}}/{{len .rollout.spec.strategy.canary.steps}}
+      *Weight:* {{.rollout.status.canary.weights.canary}}%
+      {{end}}
+  
+  template.rollout-completed: |
+    message: |
+      {{if eq .serviceType "slack"}}:checkered_flag:{{end}} Rollout **{{.app.metadata.name}}** completed successfully.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Strategy:* {{.rollout.spec.strategy}}
+      *Duration:* {{.rollout.status.completedAt.Sub .rollout.status.startedAt}}
+      {{end}}
+  
+  template.rollout-aborted: |
+    message: |
+      {{if eq .serviceType "slack"}}:stop_sign:{{end}} Rollout **{{.app.metadata.name}}** was aborted.
+      {{if eq .serviceType "slack"}}
+      *Environment:* {{.app.metadata.labels.environment}}
+      *Reason:* {{.rollout.status.message}}
+      *Step:* {{.rollout.status.currentStepIndex}}
+      {{end}}
+    slack:
+      attachments: |
+        [{
+          "title": "{{.app.metadata.name}}",
+          "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+          "color": "danger",
+          "fields": [
+          {
+            "title": "Environment",
+            "value": "{{.app.metadata.labels.environment}}",
+            "short": true
+          },
+          {
+            "title": "Rollout Status",
+            "value": "Aborted",
+            "short": true
+          },
+          {
+            "title": "Current Step",
+            "value": "{{.rollout.status.currentStepIndex}}",
+            "short": true
+          },
+          {
+            "title": "Reason",
+            "value": "{{.rollout.status.message}}",
+            "short": false
+          }
+          ]
+        }]
+  
+  # GitHub webhook template
+  template.github-commit-status: |
+    webhook:
+      github:
+        method: POST
+        path: /repos/cybersentinel/cybersentinel/statuses/{{.app.status.sync.revision}}
+        body: |
+          {
+            "state": "{{if eq .app.status.sync.status 'Synced'}}success{{else if eq .app.status.sync.status 'OutOfSync'}}pending{{else}}failure{{end}}",
+            "target_url": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "description": "ArgoCD sync {{.app.status.sync.status}}",
+            "context": "argocd/{{.app.metadata.name}}"
+          }
+  
+  # Notification triggers
+  trigger.on-deployed: |
+    - description: Application is synced and healthy
+      when: app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+      send:
+      - app-deployed
+  
+  trigger.on-health-degraded: |
+    - description: Application has degraded health
+      when: app.status.health.status == 'Degraded'
+      send:
+      - app-health-degraded
+  
+  trigger.on-sync-failed: |
+    - description: Application sync failed
+      when: app.status.operationState.phase in ['Error', 'Failed']
+      send:
+      - app-sync-failed
+  
+  trigger.on-sync-running: |
+    - description: Application sync is running
+      when: app.status.operationState.phase in ['Running']
+      send:
+      - app-sync-running
+  
+  trigger.on-sync-succeeded: |
+    - description: Application sync succeeded
+      when: app.status.operationState.phase in ['Succeeded']
+      send:
+      - app-sync-succeeded
+  
+  trigger.on-rollout-step-completed: |
+    - description: Rollout step completed
+      when: rollout.status.phase in ['Healthy'] and rollout.status.currentStepIndex > 0
+      send:
+      - rollout-step-completed
+  
+  trigger.on-rollout-completed: |
+    - description: Rollout completed
+      when: rollout.status.phase in ['Healthy'] and rollout.status.currentStepIndex == len(rollout.spec.strategy.canary.steps)
+      send:
+      - rollout-completed
+  
+  trigger.on-rollout-aborted: |
+    - description: Rollout aborted
+      when: rollout.status.phase in ['Aborted', 'Failed']
+      send:
+      - rollout-aborted
+  
+  # Default subscription configuration
+  subscriptions: |
+    # Development environment notifications
+    - recipients:
+      - slack:dev
+      triggers:
+      - on-deployed
+      - on-health-degraded
+      - on-sync-failed
+      selector: app.metadata.labels.environment == 'dev'
+    
+    # Staging environment notifications
+    - recipients:
+      - slack:staging
+      - email:staging-team@company.com
+      triggers:
+      - on-deployed
+      - on-health-degraded
+      - on-sync-failed
+      - on-sync-running
+      selector: app.metadata.labels.environment == 'staging'
+    
+    # Production environment notifications
+    - recipients:
+      - slack:prod
+      - slack:critical
+      - email:platform-team@company.com
+      - pagerduty
+      triggers:
+      - on-deployed
+      - on-health-degraded
+      - on-sync-failed
+      - on-sync-running
+      - on-rollout-completed
+      - on-rollout-aborted
+      selector: app.metadata.labels.environment == 'prod'
+    
+    # Infrastructure applications
+    - recipients:
+      - slack:general
+      - email:sre-team@company.com
+      triggers:
+      - on-deployed
+      - on-health-degraded
+      - on-sync-failed
+      selector: app.metadata.labels.app.kubernetes.io/component == 'infrastructure'
+    
+    # GitHub commit status updates
+    - recipients:
+      - webhook:github
+      triggers:
+      - on-deployed
+      - on-sync-failed
+      - on-health-degraded
+      selector: app.spec.source.repoURL contains 'github.com'
+  
+  # Context for templates
+  context: |
+    argocdUrl: https://argocd.${DOMAIN_NAME}
+    dashboardUrl: https://grafana.${DOMAIN_NAME}
+    
+  # Bot configuration for Slack
+  bot: |
+    # Slack bot configuration
+    slack:
+      username: ArgoCD
+      icon: ":argo:"
+      
+    # GitHub bot configuration  
+    github:
+      username: argocd-bot
+
+---
+# Webhook Service for Custom Integrations
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-service
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: webhook-service
+    app.kubernetes.io/component: notifications
+    app.kubernetes.io/part-of: argocd
+spec:
+  selector:
+    app: webhook-service
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+
+---
+# Webhook Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-service
+  namespace: argocd
+  labels:
+    app: webhook-service
+    app.kubernetes.io/name: webhook-service
+    app.kubernetes.io/component: notifications
+    app.kubernetes.io/part-of: argocd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhook-service
+  template:
+    metadata:
+      labels:
+        app: webhook-service
+    spec:
+      containers:
+      - name: webhook
+        image: cybersentinel/webhook-handler:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: argocd-notifications-secret
+              key: webhook-secret
+        - name: SLACK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: argocd-notifications-secret
+              key: slack-token
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: argocd-notifications-secret
+              key: github-token
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: webhook-service
+              topologyKey: kubernetes.io/hostname

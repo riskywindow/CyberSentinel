@@ -122,15 +122,65 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
   bucket = aws_s3_bucket.backups.id
 
   rule {
-    id     = "backup_retention"
+    id     = "velero_backup_retention"
     status = "Enabled"
 
+    # Daily backups retention
     expiration {
-      days = var.backup_retention_period * 5  # Keep backups 5x longer
+      days = var.environment == "prod" ? 90 : 30
     }
 
     noncurrent_version_expiration {
-      noncurrent_days = var.backup_retention_period
+      noncurrent_days = var.environment == "prod" ? 30 : 7
+    }
+
+    # Transition to cheaper storage classes for long-term retention
+    dynamic "transition" {
+      for_each = var.environment == "prod" ? [1] : []
+      content {
+        days          = 30
+        storage_class = "STANDARD_IA"
+      }
+    }
+
+    dynamic "transition" {
+      for_each = var.environment == "prod" ? [1] : []
+      content {
+        days          = 90
+        storage_class = "GLACIER"
+      }
+    }
+
+    # Cleanup incomplete multipart uploads
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  # Archive backup retention rule for production
+  dynamic "rule" {
+    for_each = var.environment == "prod" ? [1] : []
+    content {
+      id     = "velero_archive_retention"
+      status = "Enabled"
+
+      filter {
+        prefix = "archives/"
+      }
+
+      expiration {
+        days = 2555  # 7 years for compliance
+      }
+
+      transition {
+        days          = 90
+        storage_class = "GLACIER"
+      }
+
+      transition {
+        days          = 365
+        storage_class = "DEEP_ARCHIVE"
+      }
     }
   }
 }

@@ -1,0 +1,659 @@
+# CloudWatch Container Insights Helm Values
+# This configures CloudWatch Container Insights agent for comprehensive EKS monitoring
+
+# Global configuration
+global:
+  # AWS account ID - will be populated by Terraform
+  awsAccountId: ""
+  # AWS region
+  region: "us-west-2"
+  # Environment name (dev, staging, prod)
+  environment: ""
+  # Project name
+  projectName: "cybersentinel"
+  # EKS cluster name
+  clusterName: ""
+
+# CloudWatch agent configuration
+cloudwatchAgent:
+  # Image configuration
+  image:
+    repository: public.ecr.aws/cloudwatch-agent/cloudwatch-agent
+    tag: "1.300026.1b317"
+    pullPolicy: IfNotPresent
+
+  # Service Account configuration with IRSA
+  serviceAccount:
+    create: true
+    name: cloudwatch-agent
+    annotations:
+      # IRSA role ARN - populated by Terraform
+      eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/{{ .Values.global.projectName }}-{{ .Values.global.environment }}-cloudwatch-agent"
+
+  # DaemonSet configuration to run on all nodes
+  daemonset:
+    enabled: true
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: "10%"
+
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Node selector for monitoring all nodes
+  nodeSelector: {}
+
+  # Tolerations to run on all nodes including master
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+  # Security context
+  securityContext:
+    runAsNonRoot: false  # Required for system metrics collection
+    runAsUser: 0
+    privileged: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false  # Agent needs to write temp files
+    capabilities:
+      add:
+        - SYS_PTRACE  # Required for process metrics
+      drop:
+        - ALL
+
+  # Pod security context
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Volume mounts for system metrics collection
+  volumeMounts:
+    - name: cwagentconfig
+      mountPath: /etc/cwagentconfig
+      readOnly: true
+    - name: rootfs
+      mountPath: /rootfs
+      readOnly: true
+    - name: dockersock
+      mountPath: /var/run/docker.sock
+      readOnly: true
+    - name: varlibdocker
+      mountPath: /var/lib/docker
+      readOnly: true
+    - name: varlog
+      mountPath: /var/log
+      readOnly: true
+    - name: sys
+      mountPath: /sys
+      readOnly: true
+    - name: devdisk
+      mountPath: /dev/disk
+      readOnly: true
+
+  # Volumes for system metrics collection
+  volumes:
+    - name: cwagentconfig
+      configMap:
+        name: cwagentconfig
+    - name: rootfs
+      hostPath:
+        path: /
+    - name: dockersock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: varlibdocker
+      hostPath:
+        path: /var/lib/docker
+    - name: varlog
+      hostPath:
+        path: /var/log
+    - name: sys
+      hostPath:
+        path: /sys
+    - name: devdisk
+      hostPath:
+        path: /dev/disk
+
+  # Environment variables
+  env:
+    - name: AWS_REGION
+      value: "{{ .Values.global.region }}"
+    - name: CLUSTER_NAME
+      value: "{{ .Values.global.clusterName }}"
+    - name: CI_VERSION
+      value: "k8s/1.3.26"
+
+# CloudWatch agent configuration
+agentConfig:
+  # CloudWatch agent configuration JSON
+  cwagentconfig: |
+    {
+      "agent": {
+        "region": "{{ .Values.global.region }}",
+        "debug": false
+      },
+      "logs": {
+        "metrics_collected": {
+          "kubernetes": {
+            "cluster_name": "{{ .Values.global.clusterName }}",
+            "metrics_collection_interval": 60
+          }
+        },
+        "force_flush_interval": 5
+      },
+      "metrics": {
+        "namespace": "CWAgent",
+        "metrics_collected": {
+          "cpu": {
+            "measurement": [
+              {
+                "name": "cpu_usage_idle",
+                "rename": "CPU_USAGE_IDLE",
+                "unit": "Percent"
+              },
+              {
+                "name": "cpu_usage_iowait",
+                "rename": "CPU_USAGE_IOWAIT",
+                "unit": "Percent"
+              },
+              {
+                "name": "cpu_usage_user",
+                "rename": "CPU_USAGE_USER",
+                "unit": "Percent"
+              },
+              {
+                "name": "cpu_usage_system",
+                "rename": "CPU_USAGE_SYSTEM",
+                "unit": "Percent"
+              }
+            ],
+            "metrics_collection_interval": 60,
+            "totalcpu": false
+          },
+          "disk": {
+            "measurement": [
+              {
+                "name": "used_percent",
+                "rename": "DISK_USED_PERCENT",
+                "unit": "Percent"
+              }
+            ],
+            "metrics_collection_interval": 60,
+            "resources": [
+              "*"
+            ]
+          },
+          "diskio": {
+            "measurement": [
+              {
+                "name": "io_time",
+                "rename": "DISKIO_IO_TIME",
+                "unit": "Milliseconds"
+              },
+              {
+                "name": "read_bytes",
+                "rename": "DISKIO_READ_BYTES",
+                "unit": "Bytes"
+              },
+              {
+                "name": "write_bytes",
+                "rename": "DISKIO_WRITE_BYTES",
+                "unit": "Bytes"
+              },
+              {
+                "name": "reads",
+                "rename": "DISKIO_READS",
+                "unit": "Count"
+              },
+              {
+                "name": "writes",
+                "rename": "DISKIO_WRITES",
+                "unit": "Count"
+              }
+            ],
+            "metrics_collection_interval": 60,
+            "resources": [
+              "*"
+            ]
+          },
+          "mem": {
+            "measurement": [
+              {
+                "name": "mem_used_percent",
+                "rename": "MEM_USED_PERCENT",
+                "unit": "Percent"
+              }
+            ],
+            "metrics_collection_interval": 60
+          },
+          "netstat": {
+            "measurement": [
+              {
+                "name": "tcp_established",
+                "rename": "NETSTAT_TCP_ESTABLISHED",
+                "unit": "Count"
+              },
+              {
+                "name": "tcp_time_wait",
+                "rename": "NETSTAT_TCP_TIME_WAIT",
+                "unit": "Count"
+              }
+            ],
+            "metrics_collection_interval": 60
+          },
+          "swap": {
+            "measurement": [
+              {
+                "name": "swap_used_percent",
+                "rename": "SWAP_USED_PERCENT",
+                "unit": "Percent"
+              }
+            ],
+            "metrics_collection_interval": 60
+          }
+        },
+        "append_dimensions": {
+          "AutoScalingGroupName": "${aws:AutoScalingGroupName}",
+          "ImageId": "${aws:ImageId}",
+          "InstanceId": "${aws:InstanceId}",
+          "InstanceType": "${aws:InstanceType}",
+          "ClusterName": "{{ .Values.global.clusterName }}"
+        }
+      }
+    }
+
+  # Kubernetes-specific configuration
+  kubernetesConfig: |
+    {
+      "cloudwatch_config": {
+        "cluster_name": "{{ .Values.global.clusterName }}",
+        "log_group_name": "/aws/containerinsights/{{ .Values.global.clusterName }}/application"
+      },
+      "kubernetes_config": {
+        "cluster_name": "{{ .Values.global.clusterName }}",
+        "log_group_name": "/aws/containerinsights/{{ .Values.global.clusterName }}/host"
+      }
+    }
+
+# Fluent Bit configuration for log forwarding
+fluentBit:
+  # Image configuration
+  image:
+    repository: public.ecr.aws/aws-for-fluent-bit/aws-for-fluent-bit
+    tag: "2.32.0"
+    pullPolicy: IfNotPresent
+
+  # Service Account configuration with IRSA (shared with CloudWatch agent)
+  serviceAccount:
+    create: false  # Use the same service account as CloudWatch agent
+    name: cloudwatch-agent
+
+  # DaemonSet configuration
+  daemonset:
+    enabled: true
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: "10%"
+
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 500m
+      memory: 200Mi
+    requests:
+      cpu: 100m
+      memory: 50Mi
+
+  # Node selector and tolerations
+  nodeSelector: {}
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+    - key: CriticalAddonsOnly
+      operator: Exists
+
+  # Security context
+  securityContext:
+    runAsNonRoot: false  # Required for log file access
+    runAsUser: 0
+    privileged: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Volume mounts for log collection
+  volumeMounts:
+    - name: fluentbitstate
+      mountPath: /var/fluent-bit/state
+    - name: varlog
+      mountPath: /var/log
+      readOnly: true
+    - name: varlibdocker
+      mountPath: /var/lib/docker/containers
+      readOnly: true
+    - name: fluent-bit-config
+      mountPath: /fluent-bit/etc/
+      readOnly: true
+
+  # Volumes for log collection
+  volumes:
+    - name: fluentbitstate
+      hostPath:
+        path: /var/fluent-bit/state
+    - name: varlog
+      hostPath:
+        path: /var/log
+    - name: varlibdocker
+      hostPath:
+        path: /var/lib/docker/containers
+    - name: fluent-bit-config
+      configMap:
+        name: fluent-bit-config
+
+  # Environment variables
+  env:
+    - name: AWS_REGION
+      value: "{{ .Values.global.region }}"
+    - name: CLUSTER_NAME
+      value: "{{ .Values.global.clusterName }}"
+    - name: HTTP_SERVER
+      value: "On"
+    - name: HTTP_PORT
+      value: "2020"
+    - name: READ_FROM_HEAD
+      value: "Off"
+    - name: READ_FROM_TAIL
+      value: "On"
+
+# Fluent Bit configuration
+fluentBitConfig:
+  # Main configuration
+  fluentBitConf: |
+    [SERVICE]
+        Flush                     5
+        Grace                     30
+        Log_Level                 info
+        Daemon                    off
+        Parsers_File              parsers.conf
+        HTTP_Server               ${HTTP_SERVER}
+        HTTP_Listen               0.0.0.0
+        HTTP_Port                 ${HTTP_PORT}
+        storage.path              /var/fluent-bit/state/flb-storage/
+        storage.sync              normal
+        storage.checksum          off
+        storage.backlog.mem_limit 5M
+
+    @INCLUDE application-log.conf
+    @INCLUDE dataplane-log.conf
+    @INCLUDE host-log.conf
+
+  # Application log configuration
+  applicationLogConf: |
+    [INPUT]
+        Name                tail
+        Tag                 application.*
+        Exclude_Path        /var/log/containers/cloudwatch-agent*, /var/log/containers/fluent-bit*, /var/log/containers/aws-node*, /var/log/containers/kube-proxy*
+        Path                /var/log/containers/*.log
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  container_firstline
+        Parser              docker
+        DB                  /var/fluent-bit/state/flb_container.db
+        Mem_Buf_Limit       50MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Rotate_Wait         30
+        storage.type        filesystem
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [FILTER]
+        Name                kubernetes
+        Match               application.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix     application.var.log.containers.
+        Merge_Log           On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+        Annotations         Off
+        Labels              On
+
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               application.*
+        region              ${AWS_REGION}
+        log_group_name      /aws/containerinsights/${CLUSTER_NAME}/application
+        log_stream_prefix   ${HOST_NAME}-
+        auto_create_group   true
+        extra_user_agent    container-insights
+
+  # Host log configuration
+  hostLogConf: |
+    [INPUT]
+        Name                systemd
+        Tag                 host.*
+        Systemd_Filter      _SYSTEMD_UNIT=kubelet.service
+        Systemd_Filter      _SYSTEMD_UNIT=docker.service
+        Systemd_Filter      _SYSTEMD_UNIT=containerd.service
+        DB                  /var/fluent-bit/state/systemd.db
+        Path                /var/log/journal
+        Read_From_Tail      ${READ_FROM_TAIL}
+
+    [INPUT]
+        Name                tail
+        Tag                 host.dmesg
+        Path                /var/log/dmesg
+        Parser              syslog
+        DB                  /var/fluent-bit/state/dmesg.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [INPUT]
+        Name                tail
+        Tag                 host.messages
+        Path                /var/log/messages
+        Parser              syslog
+        DB                  /var/fluent-bit/state/messages.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [INPUT]
+        Name                tail
+        Tag                 host.secure
+        Path                /var/log/secure
+        Parser              syslog
+        DB                  /var/fluent-bit/state/secure.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [FILTER]
+        Name                aws
+        Match               host.*
+        imds_version        v1
+
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               host.*
+        region              ${AWS_REGION}
+        log_group_name      /aws/containerinsights/${CLUSTER_NAME}/host
+        log_stream_prefix   ${HOST_NAME}.
+        auto_create_group   true
+        extra_user_agent    container-insights
+
+  # Data plane log configuration
+  dataplaneLogConf: |
+    [INPUT]
+        Name                systemd
+        Tag                 dataplane.systemd.*
+        Systemd_Filter      _SYSTEMD_UNIT=docker.service
+        Systemd_Filter      _SYSTEMD_UNIT=containerd.service
+        Systemd_Filter      _SYSTEMD_UNIT=kubelet.service
+        DB                  /var/fluent-bit/state/systemd_dataplane.db
+        Path                /var/log/journal
+        Read_From_Tail      ${READ_FROM_TAIL}
+
+    [INPUT]
+        Name                tail
+        Tag                 dataplane.tail.*
+        Path                /var/log/containers/aws-node*, /var/log/containers/kube-proxy*
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  container_firstline
+        Parser              docker
+        DB                  /var/fluent-bit/state/flb_dataplane_tail.db
+        Mem_Buf_Limit       50MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Rotate_Wait         30
+        storage.type        filesystem
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [FILTER]
+        Name                kubernetes
+        Match               dataplane.tail.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Kube_Tag_Prefix     dataplane.tail.var.log.containers.
+        Merge_Log           On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+        Annotations         Off
+        Labels              On
+
+    [FILTER]
+        Name                aws
+        Match               dataplane.*
+        imds_version        v1
+
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               dataplane.*
+        region              ${AWS_REGION}
+        log_group_name      /aws/containerinsights/${CLUSTER_NAME}/dataplane
+        log_stream_prefix   ${HOST_NAME}-
+        auto_create_group   true
+        extra_user_agent    container-insights
+
+  # Parsers configuration
+  parsersConf: |
+    [PARSER]
+        Name                docker
+        Format              json
+        Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+    [PARSER]
+        Name                syslog
+        Format              regex
+        Regex               ^(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+        Time_Key            time
+        Time_Format         %b %d %H:%M:%S
+
+    [PARSER]
+        Name                container_firstline
+        Format              regex
+        Regex               (?<log>(?<="log":")\S(?!\.).*?)(?<!\\)".*(?<stream>(?<="stream":").*?)".*(?<time>\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}\.\w*).*(?=})
+        Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+# Environment-specific overrides
+environments:
+  dev:
+    cloudwatchAgent:
+      resources:
+        limits:
+          cpu: 200m
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+    fluentBit:
+      resources:
+        limits:
+          cpu: 200m
+          memory: 100Mi
+        requests:
+          cpu: 50m
+          memory: 25Mi
+    agentConfig:
+      cwagentconfig: |
+        {
+          "agent": {
+            "region": "{{ .Values.global.region }}",
+            "debug": true
+          }
+        }
+    
+  staging:
+    cloudwatchAgent:
+      resources:
+        limits:
+          cpu: 400m
+          memory: 384Mi
+        requests:
+          cpu: 75m
+          memory: 96Mi
+    fluentBit:
+      resources:
+        limits:
+          cpu: 300m
+          memory: 150Mi
+        requests:
+          cpu: 75m
+          memory: 37Mi
+    
+  prod:
+    cloudwatchAgent:
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1Gi
+        requests:
+          cpu: 200m
+          memory: 256Mi
+    fluentBit:
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 400Mi
+        requests:
+          cpu: 200m
+          memory: 100Mi
+    # Enhanced monitoring in production
+    agentConfig:
+      cwagentconfig: |
+        {
+          "agent": {
+            "region": "{{ .Values.global.region }}",
+            "debug": false
+          },
+          "metrics": {
+            "metrics_collection_interval": 30
+          }
+        }

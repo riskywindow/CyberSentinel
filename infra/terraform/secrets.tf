@@ -64,11 +64,27 @@ resource "aws_secretsmanager_secret_version" "external_services" {
   secret_id = aws_secretsmanager_secret.external_services.id
   secret_string = jsonencode({
     # These should be populated manually or via CI/CD
+    # AI/ML Services
     openai_api_key      = ""
+    openai_api_url      = "https://api.openai.com/v1"
+    openai_model        = "gpt-4"
+    
+    # Alerting Services
     slack_webhook_url   = ""
+    slack_channel       = "#cybersentinel-alerts"
     pagerduty_api_key   = ""
+    pagerduty_service_key = ""
+    
+    # SIEM/Logging Services
     elasticsearch_url   = ""
+    elasticsearch_username = ""
+    elasticsearch_password = ""
     splunk_hec_token    = ""
+    splunk_hec_url      = ""
+    
+    # Cloud Services (if using cross-account access)
+    aws_access_key_id     = ""
+    aws_secret_access_key = ""
   })
 
   lifecycle {

@@ -206,3 +206,32 @@ resources:
   {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+OpenTelemetry environment variables
+*/}}
+{{- define "cybersentinel.otelEnv" -}}
+{{- $component := .component -}}
+{{- with .root }}
+{{- if .Values.monitoring.tracing.enabled }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ .Values.monitoring.tracing.endpoint | quote }}
+- name: OTEL_SERVICE_NAME
+  value: "{{ .Values.monitoring.tracing.serviceName }}-{{ $component }}"
+- name: OTEL_SERVICE_VERSION
+  value: {{ .Chart.AppVersion | quote }}
+- name: OTEL_TRACES_SAMPLER
+  value: "traceidratio"
+- name: OTEL_TRACES_SAMPLER_ARG
+  value: {{ .Values.monitoring.tracing.samplingRatio | quote }}
+- name: OTEL_RESOURCE_ATTRIBUTES
+  value: "service.name={{ .Values.monitoring.tracing.serviceName }}-{{ $component }},service.version={{ .Chart.AppVersion }},deployment.environment={{ .Values.app.environment }},component={{ $component }}"
+{{- if eq $component "api" }}
+- name: OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST
+  value: "content-type,authorization"
+- name: OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_RESPONSE
+  value: "content-type"
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

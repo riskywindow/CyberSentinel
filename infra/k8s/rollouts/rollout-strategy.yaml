@@ -1,0 +1,494 @@
+---
+# Argo Rollouts CRD for Canary Deployments
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: cybersentinel-api-rollout
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: cybersentinel-api
+    app.kubernetes.io/component: rollout
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  replicas: 3
+  strategy:
+    canary:
+      # Traffic routing
+      canaryService: cybersentinel-api-canary
+      stableService: cybersentinel-api-stable
+      trafficRouting:
+        alb:
+          ingress: cybersentinel-api-ingress
+          servicePort: 80
+          annotationPrefix: alb.ingress.kubernetes.io
+      
+      # Progressive rollout steps
+      steps:
+      # Step 1: Deploy canary with 0% traffic for validation
+      - setWeight: 0
+        pause:
+          duration: 30s
+      
+      # Step 2: Route 10% traffic to canary
+      - setWeight: 10
+        pause:
+          duration: 2m
+      
+      # Step 3: Run analysis and increase to 25%
+      - setWeight: 25
+        pause:
+          duration: 5m
+      
+      # Step 4: Analysis checkpoint at 50%
+      - setWeight: 50
+        pause:
+          duration: 10m
+      
+      # Step 5: Near full rollout at 75%
+      - setWeight: 75
+        pause:
+          duration: 5m
+      
+      # Step 6: Complete rollout
+      - setWeight: 100
+      
+      # Canary analysis
+      analysis:
+        templates:
+        - templateName: success-rate
+        - templateName: latency
+        - templateName: error-rate
+        args:
+        - name: service-name
+          value: cybersentinel-api-canary
+        - name: namespace
+          value: cybersentinel
+      
+      # Auto rollback configuration
+      scaleDownDelaySeconds: 30
+      scaleDownDelayRevisionLimit: 2
+      
+      # Anti-affinity for canary pods
+      antiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: cybersentinel-api
+            topologyKey: kubernetes.io/hostname
+          weight: 100
+  
+  selector:
+    matchLabels:
+      app: cybersentinel-api
+  
+  template:
+    metadata:
+      labels:
+        app: cybersentinel-api
+        version: canary
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: cybersentinel
+      containers:
+      - name: api
+        image: cybersentinel/api:v1.0.0
+        ports:
+        - containerPort: 8000
+          name: http
+        - containerPort: 8080
+          name: metrics
+        env:
+        - name: ENVIRONMENT
+          value: "prod"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ROLLOUT_VERSION
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['rollouts-pod-template-hash']
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+---
+# Blue-Green Rollout Strategy
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: cybersentinel-ui-rollout
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: cybersentinel-ui
+    app.kubernetes.io/component: rollout
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  replicas: 3
+  strategy:
+    blueGreen:
+      # Service configuration
+      activeService: cybersentinel-ui-active
+      previewService: cybersentinel-ui-preview
+      
+      # Auto promotion (can be disabled for manual approval)
+      autoPromotionEnabled: false
+      
+      # Promotion and rollback
+      prePromotionAnalysis:
+        templates:
+        - templateName: ui-performance
+        - templateName: ui-accessibility
+        args:
+        - name: service-name
+          value: cybersentinel-ui-preview
+        - name: namespace
+          value: cybersentinel
+      
+      postPromotionAnalysis:
+        templates:
+        - templateName: ui-success-rate
+        args:
+        - name: service-name
+          value: cybersentinel-ui-active
+        - name: namespace
+          value: cybersentinel
+      
+      # Scaling configuration
+      scaleDownDelaySeconds: 60
+      scaleDownDelayRevisionLimit: 2
+      
+      # Preview and active metadata
+      previewMetadata:
+        labels:
+          version: preview
+        annotations:
+          role: preview
+      
+      activeMetadata:
+        labels:
+          version: active
+        annotations:
+          role: active
+  
+  selector:
+    matchLabels:
+      app: cybersentinel-ui
+  
+  template:
+    metadata:
+      labels:
+        app: cybersentinel-ui
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: cybersentinel
+      containers:
+      - name: ui
+        image: cybersentinel/ui:v1.0.0
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: API_BASE_URL
+          value: "https://api.${DOMAIN_NAME}"
+        - name: ROLLOUT_VERSION
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['rollouts-pod-template-hash']
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+
+---
+# Analysis Templates for Rollout Validation
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: success-rate-analysis
+    app.kubernetes.io/component: analysis
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  args:
+  - name: service-name
+  - name: namespace
+  
+  metrics:
+  - name: success-rate
+    successCondition: result[0] >= 0.95
+    interval: 30s
+    count: 5
+    failureLimit: 3
+    provider:
+      prometheus:
+        address: http://prometheus.monitoring.svc.cluster.local:9090
+        query: |
+          sum(rate(http_requests_total{service="{{args.service-name}}", namespace="{{args.namespace}}", code!~"5.."}[2m])) /
+          sum(rate(http_requests_total{service="{{args.service-name}}", namespace="{{args.namespace}}"}[2m]))
+
+---
+# Latency Analysis Template
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: latency
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: latency-analysis
+    app.kubernetes.io/component: analysis
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  args:
+  - name: service-name
+  - name: namespace
+  
+  metrics:
+  - name: latency-p95
+    successCondition: result[0] <= 0.5
+    interval: 30s
+    count: 5
+    failureLimit: 3
+    provider:
+      prometheus:
+        address: http://prometheus.monitoring.svc.cluster.local:9090
+        query: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{service="{{args.service-name}}", namespace="{{args.namespace}}"}[2m])) by (le)
+          )
+
+---
+# Error Rate Analysis Template
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: error-rate-analysis
+    app.kubernetes.io/component: analysis
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  args:
+  - name: service-name
+  - name: namespace
+  
+  metrics:
+  - name: error-rate
+    successCondition: result[0] <= 0.05
+    interval: 30s
+    count: 5
+    failureLimit: 2
+    provider:
+      prometheus:
+        address: http://prometheus.monitoring.svc.cluster.local:9090
+        query: |
+          sum(rate(http_requests_total{service="{{args.service-name}}", namespace="{{args.namespace}}", code=~"5.."}[2m])) /
+          sum(rate(http_requests_total{service="{{args.service-name}}", namespace="{{args.namespace}}"}[2m]))
+
+---
+# UI Performance Analysis Template
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: ui-performance
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: ui-performance-analysis
+    app.kubernetes.io/component: analysis
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  args:
+  - name: service-name
+  - name: namespace
+  
+  metrics:
+  - name: page-load-time
+    successCondition: result[0] <= 3.0
+    interval: 60s
+    count: 3
+    provider:
+      job:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: lighthouse
+                image: femtopixel/google-lighthouse:latest
+                command: ["lighthouse"]
+                args: 
+                - "--chrome-flags=--headless --no-sandbox --disable-gpu"
+                - "--output=json"
+                - "--only-categories=performance"
+                - "http://{{args.service-name}}.{{args.namespace}}.svc.cluster.local:3000"
+              restartPolicy: Never
+          backoffLimit: 1
+
+---
+# UI Accessibility Analysis Template
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: ui-accessibility
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: ui-accessibility-analysis
+    app.kubernetes.io/component: analysis
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  args:
+  - name: service-name
+  - name: namespace
+  
+  metrics:
+  - name: accessibility-score
+    successCondition: result[0] >= 0.95
+    interval: 120s
+    count: 2
+    provider:
+      job:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: axe-core
+                image: cybersentinel/accessibility-scanner:latest
+                command: ["/app/scan.sh"]
+                args: 
+                - "http://{{args.service-name}}.{{args.namespace}}.svc.cluster.local:3000"
+              restartPolicy: Never
+          backoffLimit: 1
+
+---
+# Canary Services for Traffic Splitting
+apiVersion: v1
+kind: Service
+metadata:
+  name: cybersentinel-api-canary
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: cybersentinel-api
+    app.kubernetes.io/component: canary-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: cybersentinel-api
+    version: canary
+
+---
+# Stable Service for Canary Deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: cybersentinel-api-stable
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: cybersentinel-api
+    app.kubernetes.io/component: stable-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: cybersentinel-api
+    version: stable
+
+---
+# Blue-Green Services for UI
+apiVersion: v1
+kind: Service
+metadata:
+  name: cybersentinel-ui-active
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: cybersentinel-ui
+    app.kubernetes.io/component: active-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: cybersentinel-ui
+
+---
+# Preview Service for Blue-Green Deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: cybersentinel-ui-preview
+  namespace: cybersentinel
+  labels:
+    app.kubernetes.io/name: cybersentinel-ui
+    app.kubernetes.io/component: preview-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: cybersentinel-ui

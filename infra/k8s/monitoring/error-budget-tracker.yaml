@@ -1,0 +1,678 @@
+---
+# CyberSentinel Error Budget Tracking System
+# Automated error budget calculation, tracking, and policy enforcement
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: error-budget-policy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: error-budget-policy
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+data:
+  # Error Budget Policy Configuration
+  error-budget-policy.yaml: |
+    # Error Budget Policies for CyberSentinel Services
+    # Defines automated responses based on error budget consumption
+    
+    policies:
+      # API Service Error Budget Policy
+      - service: cybersentinel-api
+        slo_target: 99.9
+        window: 30d
+        budget_policies:
+          - threshold: 25  # 25% of budget consumed
+            actions:
+              - type: notification
+                channels: ["slack_warning"]
+                message: "API service has consumed 25% of monthly error budget"
+              - type: metric_export
+                destination: "error_budget_alerts"
+          
+          - threshold: 50  # 50% of budget consumed  
+            actions:
+              - type: notification
+                channels: ["slack_warning", "email_dev_team"]
+                message: "API service has consumed 50% of monthly error budget - review deployment practices"
+              - type: change_advisory
+                severity: "medium"
+                message: "Consider slowing deployment cadence to preserve error budget"
+          
+          - threshold: 75  # 75% of budget consumed
+            actions:
+              - type: notification
+                channels: ["slack_critical", "email_dev_team", "pagerduty"]
+                message: "API service has consumed 75% of monthly error budget - change freeze recommended"
+              - type: change_freeze
+                duration: "until_budget_reset"
+                exemptions: ["critical_security_fixes", "p0_incidents"]
+              - type: escalation
+                target: "engineering_manager"
+          
+          - threshold: 90  # 90% of budget consumed
+            actions:
+              - type: notification
+                channels: ["slack_critical", "email_leadership", "pagerduty_high"]
+                message: "API service has consumed 90% of monthly error budget - immediate action required"
+              - type: change_freeze
+                duration: "until_budget_reset" 
+                exemptions: ["p0_incidents"]
+              - type: incident_creation
+                severity: "sev2"
+                title: "API Error Budget Near Exhaustion"
+                description: "Service has consumed 90% of monthly error budget"
+      
+      # Detection Engine Error Budget Policy
+      - service: cybersentinel-detection
+        slo_target: 99.95
+        window: 30d
+        budget_policies:
+          - threshold: 25
+            actions:
+              - type: notification
+                channels: ["slack_security", "email_security_team"]
+                message: "Detection engine has consumed 25% of monthly error budget"
+          
+          - threshold: 50
+            actions:
+              - type: notification
+                channels: ["slack_security", "email_security_team"]
+                message: "Detection engine has consumed 50% of monthly error budget"
+              - type: model_review
+                trigger: "accuracy_degradation_check"
+          
+          - threshold: 75
+            actions:
+              - type: notification
+                channels: ["slack_critical", "email_security_lead", "pagerduty"]
+                message: "Detection engine has consumed 75% of monthly error budget"
+              - type: change_freeze
+                duration: "until_review"
+                scope: "detection_models"
+              - type: escalation
+                target: "security_architect"
+          
+          - threshold: 90
+            actions:
+              - type: notification
+                channels: ["slack_critical", "email_leadership", "pagerduty_high"]
+                message: "Detection engine has consumed 90% of monthly error budget"
+              - type: incident_creation
+                severity: "sev1"
+                title: "Critical Security Service Degradation"
+                description: "Detection engine reliability below acceptable thresholds"
+
+    # Burn Rate Response Policies
+    burn_rate_policies:
+      # Fast burn rate response (1 hour window)
+      - window: 1h
+        threshold: 14.4  # 2% monthly budget in 1 hour
+        actions:
+          - type: immediate_notification
+            channels: ["slack_critical", "pagerduty_immediate"]
+            message: "Critical error budget burn detected - budget exhaustion in < 50 hours"
+          - type: auto_rollback
+            conditions:
+              - "deployment_within_last_2h"
+              - "error_rate_spike"
+            rollback_target: "last_known_good"
+          - type: traffic_reduction
+            percentage: 20
+            duration: "30m"
+          - type: incident_creation
+            severity: "sev1"
+            title: "Critical Error Budget Burn Rate"
+      
+      # Medium burn rate response (6 hour window)
+      - window: 6h
+        threshold: 6     # 5% monthly budget in 6 hours
+        actions:
+          - type: notification
+            channels: ["slack_critical", "email_on_call"]
+            message: "High error budget burn detected - budget exhaustion in < 5 days"
+          - type: deployment_pause
+            duration: "4h"
+            exemptions: ["critical_fixes"]
+          - type: enhanced_monitoring
+            duration: "24h"
+            metrics: ["error_rates", "latency_p99", "success_rates"]
+      
+      # Slow burn rate response (3 day window)
+      - window: 3d
+        threshold: 1     # 10% monthly budget in 3 days
+        actions:
+          - type: notification
+            channels: ["slack_warning", "email_team_leads"]
+            message: "Elevated error budget consumption detected - review operational practices"
+          - type: review_trigger
+            type: "post_mortem_lite"
+            focus: ["recent_changes", "performance_trends"]
+
+    # Recovery Actions
+    recovery_actions:
+      # Actions to take when error budget is recovering
+      - condition: "budget_consumption_decreasing"
+        duration: "4h"
+        actions:
+          - type: gradual_traffic_restore
+            percentage_per_hour: 25
+          - type: notification
+            channels: ["slack_info"]
+            message: "Error budget consumption decreasing - gradual service restoration in progress"
+      
+      - condition: "slo_compliance_restored"
+        duration: "2h"
+        actions:
+          - type: change_freeze_lift
+            conditions: ["no_ongoing_incidents", "stakeholder_approval"]
+          - type: notification
+            channels: ["slack_info", "email_dev_team"]
+            message: "SLO compliance restored - normal operations can resume"
+
+    # Reporting Configuration
+    reporting:
+      # Weekly Error Budget Reports
+      weekly_report:
+        enabled: true
+        day: "monday"
+        time: "09:00"
+        recipients: ["engineering-leads@company.com", "sre-team@company.com"]
+        content:
+          - error_budget_consumption
+          - slo_trends
+          - policy_actions_taken
+          - recommendations
+      
+      # Monthly Error Budget Review
+      monthly_report:
+        enabled: true
+        day: 1
+        time: "10:00"
+        recipients: ["engineering-leadership@company.com", "product-team@company.com"]
+        content:
+          - comprehensive_slo_analysis
+          - budget_allocation_effectiveness
+          - policy_adjustments_needed
+          - service_reliability_trends
+      
+      # Real-time Budget Dashboard
+      dashboard:
+        enabled: true
+        url: "https://grafana.cybersentinel.com/d/error-budget/error-budget-dashboard"
+        public_access: false
+        update_frequency: "1m"
+
+---
+# Error Budget Calculator CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: error-budget-calculator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: error-budget-calculator
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  schedule: "*/5 * * * *"  # Every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: error-budget-calculator
+        spec:
+          containers:
+          - name: calculator
+            image: cybersentinel/error-budget-calculator:latest
+            env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus.monitoring.svc.cluster.local:9090"
+            - name: POLICY_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: error-budget-policy
+                  key: error-budget-policy.yaml
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: slack-webhook-url
+            - name: EMAIL_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: notification-secrets
+                  key: email-config
+            command: ["/app/calculate-error-budget.py"]
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
+            volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          volumes:
+          - name: config
+            configMap:
+              name: error-budget-policy
+          restartPolicy: OnFailure
+          serviceAccountName: error-budget-calculator
+
+---
+# Service Account for Error Budget Calculator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: error-budget-calculator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: error-budget-calculator
+    app.kubernetes.io/component: monitoring
+
+---
+# ClusterRole for Error Budget Calculator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: error-budget-calculator
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create"]
+
+---
+# ClusterRoleBinding for Error Budget Calculator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: error-budget-calculator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: error-budget-calculator
+subjects:
+- kind: ServiceAccount
+  name: error-budget-calculator
+  namespace: monitoring
+
+---
+# Error Budget Report Generator
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: error-budget-report-generator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: error-budget-report-generator
+    app.kubernetes.io/component: monitoring
+data:
+  generate-report.py: |
+    #!/usr/bin/env python3
+    """
+    CyberSentinel Error Budget Report Generator
+    Generates comprehensive error budget reports and recommendations
+    """
+    import os
+    import json
+    import yaml
+    import requests
+    from datetime import datetime, timedelta
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    import smtplib
+    
+    class ErrorBudgetReportGenerator:
+        def __init__(self):
+            self.prometheus_url = os.environ.get('PROMETHEUS_URL', 'http://prometheus:9090')
+            self.report_config = self.load_config('/config/error-budget-policy.yaml')
+        
+        def load_config(self, config_path):
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        
+        def query_prometheus(self, query, time_range=None):
+            """Query Prometheus for metrics"""
+            if time_range:
+                params = {
+                    'query': query,
+                    'start': time_range['start'],
+                    'end': time_range['end'],
+                    'step': time_range.get('step', '1h')
+                }
+                url = f"{self.prometheus_url}/api/v1/query_range"
+            else:
+                params = {'query': query}
+                url = f"{self.prometheus_url}/api/v1/query"
+            
+            response = requests.get(url, params=params)
+            return response.json()
+        
+        def calculate_error_budget_metrics(self, service, window_days=30):
+            """Calculate error budget metrics for a service"""
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=window_days)
+            
+            time_range = {
+                'start': start_time.isoformat(),
+                'end': end_time.isoformat(),
+                'step': '1h'
+            }
+            
+            # Query SLI metrics
+            sli_query = f"cybersentinel:{service.replace('-', '_')}:availability_5m"
+            sli_data = self.query_prometheus(sli_query, time_range)
+            
+            if not sli_data['data']['result']:
+                return None
+            
+            # Calculate error budget consumption
+            values = [float(v[1]) for v in sli_data['data']['result'][0]['values']]
+            average_availability = sum(values) / len(values)
+            
+            # Determine SLO target based on service
+            slo_targets = {
+                'cybersentinel-api': 0.999,
+                'cybersentinel-ui': 0.995,
+                'cybersentinel-detection': 0.9995
+            }
+            target = slo_targets.get(service, 0.999)
+            
+            error_budget_consumption = (1 - average_availability) / (1 - target) * 100
+            
+            return {
+                'service': service,
+                'window_days': window_days,
+                'average_availability': average_availability,
+                'slo_target': target,
+                'error_budget_consumption': error_budget_consumption,
+                'budget_remaining': 100 - error_budget_consumption,
+                'slo_compliance': average_availability >= target
+            }
+        
+        def generate_weekly_report(self):
+            """Generate weekly error budget report"""
+            report_date = datetime.now().strftime("%Y-%m-%d")
+            
+            services = ['cybersentinel-api', 'cybersentinel-ui', 'cybersentinel-detection']
+            service_metrics = []
+            
+            for service in services:
+                metrics = self.calculate_error_budget_metrics(service, window_days=7)
+                if metrics:
+                    service_metrics.append(metrics)
+            
+            report = {
+                'report_type': 'weekly',
+                'report_date': report_date,
+                'reporting_period': '7 days',
+                'services': service_metrics,
+                'summary': self.generate_summary(service_metrics),
+                'recommendations': self.generate_recommendations(service_metrics),
+                'policy_actions': self.get_recent_policy_actions()
+            }
+            
+            return report
+        
+        def generate_monthly_report(self):
+            """Generate monthly error budget report"""
+            report_date = datetime.now().strftime("%Y-%m-%d")
+            
+            services = ['cybersentinel-api', 'cybersentinel-ui', 'cybersentinel-detection']
+            service_metrics = []
+            
+            for service in services:
+                metrics = self.calculate_error_budget_metrics(service, window_days=30)
+                if metrics:
+                    service_metrics.append(metrics)
+            
+            report = {
+                'report_type': 'monthly',
+                'report_date': report_date,
+                'reporting_period': '30 days',
+                'services': service_metrics,
+                'summary': self.generate_summary(service_metrics),
+                'trends': self.analyze_trends(service_metrics),
+                'recommendations': self.generate_recommendations(service_metrics),
+                'policy_effectiveness': self.analyze_policy_effectiveness(),
+                'budget_allocation': self.analyze_budget_allocation(service_metrics)
+            }
+            
+            return report
+        
+        def generate_summary(self, service_metrics):
+            """Generate executive summary"""
+            total_services = len(service_metrics)
+            compliant_services = len([s for s in service_metrics if s['slo_compliance']])
+            avg_budget_consumption = sum(s['error_budget_consumption'] for s in service_metrics) / total_services
+            
+            return {
+                'total_services': total_services,
+                'compliant_services': compliant_services,
+                'compliance_rate': (compliant_services / total_services) * 100,
+                'average_budget_consumption': avg_budget_consumption,
+                'overall_health': 'healthy' if compliant_services == total_services and avg_budget_consumption < 50 else 'at_risk'
+            }
+        
+        def generate_recommendations(self, service_metrics):
+            """Generate actionable recommendations"""
+            recommendations = []
+            
+            for service in service_metrics:
+                if service['error_budget_consumption'] > 75:
+                    recommendations.append({
+                        'service': service['service'],
+                        'priority': 'high',
+                        'action': 'Implement change freeze until error budget recovers',
+                        'rationale': f"Service has consumed {service['error_budget_consumption']:.1f}% of error budget"
+                    })
+                elif service['error_budget_consumption'] > 50:
+                    recommendations.append({
+                        'service': service['service'],
+                        'priority': 'medium',
+                        'action': 'Review deployment practices and reduce change frequency',
+                        'rationale': f"Service has consumed {service['error_budget_consumption']:.1f}% of error budget"
+                    })
+                elif not service['slo_compliance']:
+                    recommendations.append({
+                        'service': service['service'],
+                        'priority': 'high',
+                        'action': 'Investigate root cause of SLO breach',
+                        'rationale': f"Service availability {service['average_availability']:.3f} below target {service['slo_target']}"
+                    })
+            
+            return recommendations
+        
+        def analyze_trends(self, service_metrics):
+            """Analyze error budget trends over time"""
+            # This would compare current metrics with historical data
+            # For now, returning placeholder analysis
+            return {
+                'trending_up': [],
+                'trending_down': [],
+                'stable': [s['service'] for s in service_metrics]
+            }
+        
+        def analyze_policy_effectiveness(self):
+            """Analyze how well error budget policies are working"""
+            return {
+                'policies_triggered': 0,
+                'successful_interventions': 0,
+                'policy_adherence': 100,
+                'recommendations': ['Policies appear to be working effectively']
+            }
+        
+        def analyze_budget_allocation(self, service_metrics):
+            """Analyze if current error budget allocation is appropriate"""
+            return {
+                'appropriate_allocation': True,
+                'suggested_changes': [],
+                'justification': 'Current SLO targets appear appropriate for service criticality'
+            }
+        
+        def get_recent_policy_actions(self):
+            """Get policy actions taken in the last week"""
+            # This would query a database or log system
+            # For now, returning empty list
+            return []
+        
+        def send_report(self, report, recipients):
+            """Send report via email"""
+            subject = f"CyberSentinel {report['report_type'].title()} Error Budget Report - {report['report_date']}"
+            
+            body = self.format_report_email(report)
+            
+            # Email sending logic would go here
+            print(f"Report would be sent to: {', '.join(recipients)}")
+            print(f"Subject: {subject}")
+            print(f"Body: {body}")
+        
+        def format_report_email(self, report):
+            """Format report for email"""
+            body = f"""
+    CyberSentinel {report['report_type'].title()} Error Budget Report
+    Report Date: {report['report_date']}
+    Reporting Period: {report['reporting_period']}
+    
+    EXECUTIVE SUMMARY:
+    - Total Services: {report['summary']['total_services']}
+    - SLO Compliant Services: {report['summary']['compliant_services']}
+    - Compliance Rate: {report['summary']['compliance_rate']:.1f}%
+    - Average Budget Consumption: {report['summary']['average_budget_consumption']:.1f}%
+    - Overall Health: {report['summary']['overall_health'].upper()}
+    
+    SERVICE DETAILS:
+    """
+            
+            for service in report['services']:
+                body += f"""
+    {service['service'].upper()}:
+    - Availability: {service['average_availability']:.3f} (Target: {service['slo_target']})
+    - Error Budget Used: {service['error_budget_consumption']:.1f}%
+    - SLO Compliance: {'✓' if service['slo_compliance'] else '✗'}
+    """
+            
+            if report['recommendations']:
+                body += "\nRECOMMENDATIONS:\n"
+                for rec in report['recommendations']:
+                    body += f"- [{rec['priority'].upper()}] {rec['service']}: {rec['action']}\n"
+            
+            body += f"""
+    
+    Full Dashboard: https://grafana.cybersentinel.com/d/error-budget/error-budget-dashboard
+    
+    This report was automatically generated by the CyberSentinel SLO monitoring system.
+    """
+            
+            return body
+    
+    def main():
+        generator = ErrorBudgetReportGenerator()
+        
+        report_type = os.environ.get('REPORT_TYPE', 'weekly')
+        
+        if report_type == 'weekly':
+            report = generator.generate_weekly_report()
+            recipients = generator.report_config['reporting']['weekly_report']['recipients']
+        else:
+            report = generator.generate_monthly_report()
+            recipients = generator.report_config['reporting']['monthly_report']['recipients']
+        
+        # Print report to stdout for debugging
+        print(json.dumps(report, indent=2, default=str))
+        
+        # Send report
+        generator.send_report(report, recipients)
+    
+    if __name__ == '__main__':
+        main()
+
+---
+# Weekly Report CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: weekly-error-budget-report
+  namespace: monitoring
+spec:
+  schedule: "0 9 * * 1"  # Monday at 9 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: report-generator
+            image: python:3.9-slim
+            env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus.monitoring.svc.cluster.local:9090"
+            - name: REPORT_TYPE
+              value: "weekly"
+            command: ["/bin/bash", "-c"]
+            args:
+            - |
+              pip install requests pyyaml
+              python /scripts/generate-report.py
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: config
+              mountPath: /config
+          volumes:
+          - name: scripts
+            configMap:
+              name: error-budget-report-generator
+          - name: config
+            configMap:
+              name: error-budget-policy
+          restartPolicy: OnFailure
+
+---
+# Monthly Report CronJob  
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: monthly-error-budget-report
+  namespace: monitoring
+spec:
+  schedule: "0 10 1 * *"  # 1st of month at 10 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: report-generator
+            image: python:3.9-slim
+            env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus.monitoring.svc.cluster.local:9090"
+            - name: REPORT_TYPE
+              value: "monthly"
+            command: ["/bin/bash", "-c"]
+            args:
+            - |
+              pip install requests pyyaml
+              python /scripts/generate-report.py
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: config
+              mountPath: /config
+          volumes:
+          - name: scripts
+            configMap:
+              name: error-budget-report-generator
+          - name: config
+            configMap:
+              name: error-budget-policy
+          restartPolicy: OnFailure

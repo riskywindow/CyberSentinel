@@ -1,0 +1,184 @@
+# AWS Load Balancer Controller Helm Values
+# This configures the AWS Load Balancer Controller for CyberSentinel
+
+# Global configuration
+global:
+  # AWS account ID - will be populated by Terraform
+  awsAccountId: ""
+  # AWS region
+  region: "us-west-2"
+  # Environment name (dev, staging, prod)
+  environment: ""
+  # Project name
+  projectName: "cybersentinel"
+
+# AWS Load Balancer Controller configuration
+aws-load-balancer-controller:
+  # Image configuration
+  image:
+    repository: public.ecr.aws/eks/aws-load-balancer-controller
+    tag: "v2.6.2"
+    pullPolicy: IfNotPresent
+
+  # Replica configuration
+  replicaCount: 2
+
+  # Service Account configuration with IRSA
+  serviceAccount:
+    create: true
+    name: aws-load-balancer-controller
+    annotations:
+      # IRSA role ARN - populated by Terraform
+      eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/{{ .Values.global.projectName }}-{{ .Values.global.environment }}-aws-load-balancer-controller"
+
+  # Cluster configuration
+  clusterName: "{{ .Values.global.projectName }}-{{ .Values.global.environment }}"
+  
+  # AWS region
+  region: "{{ .Values.global.region }}"
+
+  # VPC ID - will be populated by Terraform
+  vpcId: ""
+
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 200Mi
+
+  # Node selector for system nodes
+  nodeSelector:
+    role: "system"
+
+  # Tolerations for system nodes
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+
+  # Pod anti-affinity for high availability
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values: 
+              - aws-load-balancer-controller
+          topologyKey: topology.kubernetes.io/zone
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 65534
+
+  # Logging configuration
+  logLevel: info
+
+  # Feature gates
+  enableShield: false
+  enableWaf: true
+  enableWafv2: true
+
+  # Webhook configuration
+  webhookConfig:
+    # TLS configuration for webhook
+    tlsPort: 9443
+    # Webhook timeout
+    timeoutSeconds: 10
+    # Failure policy
+    failurePolicy: Fail
+
+  # Resource limits for webhook
+  webhookResources:
+    limits:
+      cpu: 200m
+      memory: 500Mi
+    requests:
+      cpu: 100m
+      memory: 200Mi
+
+  # Additional labels
+  additionalLabels:
+    app.kubernetes.io/component: "ingress-controller"
+    app.kubernetes.io/part-of: "cybersentinel"
+    environment: "{{ .Values.global.environment }}"
+
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Environment-specific configurations
+  env:
+    - name: AWS_REGION
+      value: "{{ .Values.global.region }}"
+    - name: AWS_DEFAULT_REGION
+      value: "{{ .Values.global.region }}"
+    - name: CLUSTER_NAME
+      value: "{{ .Values.global.projectName }}-{{ .Values.global.environment }}"
+
+  # Metrics configuration
+  metrics:
+    enabled: true
+    port: 8080
+    # Service monitor for Prometheus
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      interval: 30s
+      labels:
+        environment: "{{ .Values.global.environment }}"
+
+# Environment-specific overrides
+environments:
+  dev:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+    logLevel: debug
+    
+  staging:
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 200Mi
+    logLevel: info
+    
+  prod:
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 200m
+        memory: 400Mi
+    logLevel: info
+    # Additional security in production
+    enableShield: true

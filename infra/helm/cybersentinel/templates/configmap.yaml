@@ -49,8 +49,8 @@ data:
   evaluation_report_retention: {{ .Values.evaluation.reportRetention | default "30" | quote }}
   
   # Monitoring Configuration
-  metrics_enabled: {{ .Values.monitoring.enabled | quote }}
-  metrics_port: {{ .Values.monitoring.port | default "9090" | quote }}
+  metrics_enabled: {{ .Values.monitoring.metrics.enabled | default "true" | quote }}
+  metrics_port: {{ .Values.monitoring.metrics.port | default "9000" | quote }}
   tracing_enabled: {{ .Values.monitoring.tracing.enabled | default "true" | quote }}
   
   # Storage Configuration
@@ -69,6 +69,23 @@ data:
   feature_real_time_analysis: {{ .Values.features.realTimeAnalysis | default "true" | quote }}
   feature_automated_response: {{ .Values.features.automatedResponse | default "false" | quote }}
   feature_threat_intelligence: {{ .Values.features.threatIntelligence | default "true" | quote }}
+  
+  # ATT&CK Framework (minimal subset for Scout agent)
+  attack_framework: |
+    {
+      "techniques": [
+        {"id": "T1059", "name": "Command and Scripting Interpreter", "tactics": ["execution"]},
+        {"id": "T1055", "name": "Process Injection", "tactics": ["defense-evasion", "privilege-escalation"]},
+        {"id": "T1078", "name": "Valid Accounts", "tactics": ["defense-evasion", "persistence", "privilege-escalation", "initial-access"]},
+        {"id": "T1110", "name": "Brute Force", "tactics": ["credential-access"]},
+        {"id": "T1046", "name": "Network Service Scanning", "tactics": ["discovery"]},
+        {"id": "T1003", "name": "OS Credential Dumping", "tactics": ["credential-access"]},
+        {"id": "T1021", "name": "Remote Services", "tactics": ["lateral-movement"]},
+        {"id": "T1105", "name": "Ingress Tool Transfer", "tactics": ["command-and-control"]},
+        {"id": "T1071", "name": "Application Layer Protocol", "tactics": ["command-and-control"]},
+        {"id": "T1041", "name": "Exfiltration Over C2 Channel", "tactics": ["exfiltration"]}
+      ]
+    }
 ---
 apiVersion: v1
 kind: ConfigMap

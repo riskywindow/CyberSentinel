@@ -1,0 +1,71 @@
+{{- if .Values.limitRange.enabled }}
+---
+# Limit Range for Container Resources
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-limits
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: security
+spec:
+  limits:
+  {{- range .Values.limitRange.limits }}
+  - type: {{ .type }}
+    {{- if .default }}
+    default:
+      {{- toYaml .default | nindent 6 }}
+    {{- end }}
+    {{- if .defaultRequest }}
+    defaultRequest:
+      {{- toYaml .defaultRequest | nindent 6 }}
+    {{- end }}
+    {{- if .max }}
+    max:
+      {{- toYaml .max | nindent 6 }}
+    {{- end }}
+    {{- if .min }}
+    min:
+      {{- toYaml .min | nindent 6 }}
+    {{- end }}
+    {{- if .maxLimitRequestRatio }}
+    maxLimitRequestRatio:
+      {{- toYaml .maxLimitRequestRatio | nindent 6 }}
+    {{- end }}
+  {{- end }}
+---
+# Limit Range for Pod Resources
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-pod-limits
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: security
+spec:
+  limits:
+  - type: Pod
+    max:
+      cpu: {{ .Values.limitRange.pod.max.cpu | default "4000m" | quote }}
+      memory: {{ .Values.limitRange.pod.max.memory | default "8Gi" | quote }}
+    min:
+      cpu: {{ .Values.limitRange.pod.min.cpu | default "50m" | quote }}
+      memory: {{ .Values.limitRange.pod.min.memory | default "64Mi" | quote }}
+---
+# Limit Range for Persistent Volume Claims
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-pvc-limits
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: security
+spec:
+  limits:
+  - type: PersistentVolumeClaim
+    max:
+      storage: {{ .Values.limitRange.pvc.max.storage | default "100Gi" | quote }}
+    min:
+      storage: {{ .Values.limitRange.pvc.min.storage | default "1Gi" | quote }}
+
+{{- end }}

@@ -1,0 +1,563 @@
+# CyberSentinel Helm Chart Values - Production Environment
+
+global:
+  imageRegistry: "ghcr.io"
+  imagePullSecrets: []
+  storageClass: "gp3"
+
+# Application configuration
+app:
+  name: cybersentinel
+  version: "1.0.0"
+  environment: "prod"
+
+# Service Account Configuration with IRSA
+serviceAccount:
+  create: true
+  automount: true
+  annotations:
+    # Will be populated by Terraform outputs
+    eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/cybersentinel-prod-workload-role"
+  name: ""
+
+# Secrets Configuration - External Secrets only in production
+secrets:
+  # In production, ALL secrets managed by External Secrets Operator
+  externalSecrets: true
+  secretStore: "aws-secretsmanager"
+
+# API Service Configuration - Production sizing
+api:
+  enabled: true
+  replicaCount: 3  # Multiple replicas for HA
+  image:
+    repository: ghcr.io/cybersentinel/api
+    tag: "latest"  # Will be overridden with specific version in pipeline
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9000"
+  
+  resources:
+    limits:
+      cpu: 2000m     # Production-sized resources
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 12
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  nodeSelector:
+    role: "compute"  # Dedicated node pool
+  tolerations: []
+  affinity:
+    # Spread across AZs
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values: ["api"]
+          topologyKey: topology.kubernetes.io/zone
+  
+  env:
+    - name: ENVIRONMENT
+      value: "prod"
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: WORKERS
+      value: "8"      # More workers for production
+
+# UI Service Configuration - Production sizing
+ui:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: ghcr.io/cybersentinel/ui
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9001"
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+  
+  nodeSelector:
+    role: "compute"
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values: ["ui"]
+          topologyKey: topology.kubernetes.io/zone
+  
+  env: []
+
+# Agent Services Configuration - Production sizing
+agents:
+  scout:
+    enabled: true
+    replicaCount: 3
+    image:
+      repository: ghcr.io/cybersentinel/scout-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 65
+      targetMemoryUtilizationPercentage: 75
+    dedupThreshold: "0.9"  # More strict in production
+    alertWindowHours: "0.5"  # Faster response in production
+    nodeSelector:
+      role: "compute"
+    tolerations: []
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["scout"]
+            topologyKey: topology.kubernetes.io/zone
+  
+  analyst:
+    enabled: true
+    replicaCount: 3
+    image:
+      repository: ghcr.io/cybersentinel/analyst-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 2000m     # More CPU for ML workloads
+        memory: 4Gi
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    confidenceThreshold: "0.8"  # Higher confidence in production
+    maxHypothesisEntities: "100"  # More capacity
+    sigmaValidation: true
+    nodeSelector:
+      role: "compute"  # May use GPU nodes if available
+    tolerations: []
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: ["analyst"]
+            topologyKey: topology.kubernetes.io/zone
+  
+  responder:
+    enabled: true
+    replicaCount: 2  # Multiple replicas for critical service
+    image:
+      repository: ghcr.io/cybersentinel/responder-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    autoscaling:
+      enabled: true  # Enable autoscaling in production
+      minReplicas: 2
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 75
+      targetMemoryUtilizationPercentage: 85
+    playbookTimeoutSeconds: 600
+    maxConcurrentPlaybooks: 10  # Higher concurrency
+    dryRunMode: false
+    riskAssessment:
+      enabled: true
+      autoApproveLowRisk: false  # Manual approval in production
+      requireApprovalHighRisk: true
+    audit:
+      enabled: true
+    nodeSelector:
+      role: "compute"
+    tolerations: []
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values: ["responder"]
+          topologyKey: topology.kubernetes.io/zone
+
+# Red Team Simulator Configuration - Production settings
+redteam:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/cybersentinel/redteam-simulator
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 3000m     # High CPU for intensive simulations
+      memory: 6Gi
+    requests:
+      cpu: 1500m
+      memory: 3Gi
+  simulationInterval: "300"
+  campaignIntensity: "medium"  # Balanced for production
+  maxConcurrentCampaigns: "3"
+  telemetryRateLimit: "1000"
+  adversaryProfiles:
+    enabled: true
+    profiles: ["apt1", "apt29", "apt40", "lazarus", "carbanak"]
+  mitreAttackCoverage: "comprehensive"
+  nodeSelector:
+    role: "compute"
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: node.kubernetes.io/instance-type
+            operator: In
+            values: ["c5.xlarge", "c5.2xlarge", "c5.4xlarge"]
+
+# Evaluation Harness Configuration - Production testing
+evaluation:
+  enabled: true
+  deploymentType: "cronjob"  # Scheduled evaluation in production
+  replicaCount: 1
+  image:
+    repository: ghcr.io/cybersentinel/evaluation-harness
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  mode: "batch"
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  maxConcurrentScenarios: "5"
+  performanceBaseline:
+    enabled: true
+    updateInterval: "24h"
+  nodeSelector:
+    role: "compute"
+
+# Ingress Configuration - Production domain with advanced features
+ingress:
+  enabled: true
+  className: "alb"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'  # HTTPS only
+    # Security headers
+    alb.ingress.kubernetes.io/load-balancer-attributes: routing.http2.enabled=true,idle_timeout.timeout_seconds=60
+    # WAF integration
+    alb.ingress.kubernetes.io/wafv2-acl-arn: "arn:aws:wafv2:us-west-2:{{ .Values.global.awsAccountId }}:webacl/cybersentinel-prod-waf"
+    # Certificate managed by cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Additional security
+    alb.ingress.kubernetes.io/security-groups: "sg-prod-alb-security-group"
+  hosts:
+    - host: cybersentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: cybersentinel-ui
+            port: 3000
+        - path: /api
+          pathType: Prefix
+          service:
+            name: cybersentinel-api
+            port: 8000
+  tls:
+    - secretName: cybersentinel-tls-prod
+      hosts:
+        - cybersentinel.example.com
+
+# Persistent Storage Configuration - Production sizing
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 100Gi  # Large storage for production
+  storageClass: "gp3"
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "gp3"
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+  # Service-specific storage sizes - production capacity
+  faissIndexSize: "20Gi"
+  redteamSize: "50Gi"
+  evaluationSize: "20Gi"
+  evaluationReportsSize: "100Gi"
+
+# Monitoring Configuration - Comprehensive production monitoring
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      environment: prod
+      tier: production
+    annotations:
+      prometheus.io/scrape-interval: "15s"
+    interval: 15s
+    scrapeTimeout: 10s
+    path: /metrics
+  tracing:
+    enabled: true
+    endpoint: "http://tempo:4318"
+    serviceName: "cybersentinel-prod"
+    samplingRatio: 0.1  # Lower sampling rate in production
+  metrics:
+    enabled: true
+    port: 9000
+
+# Pod Disruption Budget - Conservative for production
+podDisruptionBudget:
+  enabled: true
+  api:
+    minAvailable: "67%"  # Conservative
+  ui:
+    minAvailable: "67%"
+  scout:
+    minAvailable: "67%"
+  analyst:
+    minAvailable: "67%"
+  responder:
+    minAvailable: 2      # Ensure multiple instances
+  redteam:
+    minAvailable: 1
+  evaluation:
+    minAvailable: 1
+
+# Network Policies - Strict security in production
+networkPolicy:
+  enabled: true
+  ingress:
+    enabled: true
+  egress:
+    enabled: true
+
+# RBAC Configuration - Least privilege
+rbac:
+  enabled: true
+  clusterRole:
+    enabled: false  # Namespace-scoped only
+
+# Security Context - Strict
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  readOnlyRootFilesystem: true  # Additional security in production
+
+# Pod Security Context
+podSecurityContext:
+  enabled: true
+  fsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Resource Quotas - Production limits
+resourceQuota:
+  enabled: true
+  hard:
+    # CPU and Memory - production scale
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    limits.cpu: "40"
+    limits.memory: "80Gi"
+    # Storage - large capacity
+    persistentvolumeclaims: "20"
+    requests.storage: "500Gi"
+    # Kubernetes Objects
+    pods: "100"
+    services: "30"
+    secrets: "30"
+    configmaps: "30"
+    # Workload limits
+    deployments: "20"
+    statefulsets: "10"
+    jobs: "20"
+
+# Limit Ranges - Production appropriate
+limitRange:
+  enabled: true
+  limits:
+    - default:
+        cpu: "1000m"
+        memory: "2Gi"
+      defaultRequest:
+        cpu: "200m"
+        memory: "512Mi"
+      max:
+        cpu: "4000m"
+        memory: "8Gi"
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+      maxLimitRequestRatio:
+        cpu: "4"
+        memory: "4"
+      type: Container
+  pod:
+    max:
+      cpu: "8000m"
+      memory: "16Gi"
+    min:
+      cpu: "100m"
+      memory: "128Mi"
+
+# External Dependencies - Production endpoints
+clickhouse:
+  enabled: false
+  external:
+    host: "cybersentinel-prod-clickhouse.cluster-xyz.us-west-2.rds.amazonaws.com"
+    port: 8123
+    database: "cybersentinel_prod"
+
+neo4j:
+  enabled: false
+  external:
+    host: "cybersentinel-prod-neo4j.cluster-xyz.us-west-2.rds.amazonaws.com"
+    port: 7687
+    database: "neo4j"
+
+redis:
+  enabled: false
+  external:
+    host: "cybersentinel-prod-redis.cluster.cache.amazonaws.com"
+    port: 6379
+
+nats:
+  enabled: true
+  nats:
+    jetstream:
+      enabled: true
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+# Feature Flags - Production configuration
+features:
+  graphVisualization: true
+  realTimeAnalysis: true
+  automatedResponse: true   # Enabled in production with safeguards
+  threatIntelligence: true
+
+# External Secrets Configuration - Production
+externalSecrets:
+  enabled: true
+  secretStore:
+    provider: aws
+    region: us-west-2
+    role: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/cybersentinel-prod-external-secrets-role"
+  apiSecretsPath: "cybersentinel/prod/api"
+  dbSecretsPath: "cybersentinel/prod/database"
+  refreshInterval: "1h"  # Frequent refresh in production
+
+# Backup Configuration - Production
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: "30d"       # 30 days retention
+  storage:
+    type: s3
+    bucket: "cybersentinel-prod-backups"
+    region: us-west-2
+
+# Production-specific settings
+global:
+  awsAccountId: ""  # Will be populated by Terraform
+  domain: "cybersentinel.example.com"
+  environment: "prod"
+  region: "us-west-2"
+
+# SLO/SLI Monitoring Configuration
+slo:
+  enabled: true
+  targets:
+    availability: 99.9
+    errorRate: 0.1
+    latencyP95: 200
+    latencyP99: 500
+  alerting:
+    enabled: true
+    errorBudgetBurn:
+      fast: 2    # Alert if 2% budget burned in 1 hour
+      slow: 5    # Alert if 5% budget burned in 6 hours

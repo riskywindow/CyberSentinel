@@ -75,7 +75,7 @@ data "aws_availability_zones" "available" {
   }
 }
 
-data "aws_caller_identity" "current" {}
+# aws_caller_identity data source is defined in irsa.tf
 
 # Random password for databases
 resource "random_password" "db_passwords" {

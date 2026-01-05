@@ -1,0 +1,371 @@
+---
+# Pod Security Standards Configuration for CyberSentinel
+# This file configures Pod Security Standards for different namespaces
+
+# Application namespace with restricted Pod Security Standards
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cybersentinel
+  labels:
+    # Pod Security Standards labels
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Additional security labels
+    security.cybersentinel.io/level: "high"
+    security.cybersentinel.io/compliance: "soc2,nist"
+    app.kubernetes.io/name: "cybersentinel"
+    app.kubernetes.io/part-of: "cybersentinel"
+    app.kubernetes.io/managed-by: "helm"
+  annotations:
+    security.cybersentinel.io/description: "Application namespace with restricted security policies"
+    security.cybersentinel.io/created-by: "infrastructure-automation"
+    security.cybersentinel.io/last-review: ""
+
+---
+# External Secrets System namespace with baseline security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets-system
+  labels:
+    # Pod Security Standards labels - baseline for infrastructure components
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Security labels
+    security.cybersentinel.io/level: "medium"
+    security.cybersentinel.io/compliance: "soc2"
+    app.kubernetes.io/name: "external-secrets"
+    app.kubernetes.io/part-of: "infrastructure"
+    app.kubernetes.io/managed-by: "helm"
+  annotations:
+    security.cybersentinel.io/description: "External secrets management namespace"
+
+---
+# Monitoring namespace with baseline security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    # Pod Security Standards labels
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Security labels
+    security.cybersentinel.io/level: "medium"
+    security.cybersentinel.io/compliance: "soc2"
+    app.kubernetes.io/name: "monitoring"
+    app.kubernetes.io/part-of: "infrastructure"
+    app.kubernetes.io/managed-by: "helm"
+  annotations:
+    security.cybersentinel.io/description: "Monitoring and observability namespace"
+
+---
+# Velero namespace with baseline security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    # Pod Security Standards labels
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    # Security labels
+    security.cybersentinel.io/level: "medium"
+    security.cybersentinel.io/compliance: "soc2"
+    app.kubernetes.io/name: "velero"
+    app.kubernetes.io/part-of: "infrastructure"
+    app.kubernetes.io/managed-by: "helm"
+  annotations:
+    security.cybersentinel.io/description: "Backup and disaster recovery namespace"
+
+---
+# Security Context Constraints for application pods
+apiVersion: v1
+kind: SecurityContextConstraints
+metadata:
+  name: cybersentinel-restricted
+  labels:
+    security.cybersentinel.io/level: "high"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  # Prevent privilege escalation
+  allowPrivilegeEscalation: false
+  allowPrivilegedContainer: false
+  
+  # Required security context
+  requiredDropCapabilities:
+    - ALL
+  allowedCapabilities: []
+  
+  # User and group restrictions
+  runAsUser:
+    type: MustRunAsNonRoot
+  runAsGroup:
+    type: MustRunAs
+    ranges:
+      - min: 1000
+        max: 65535
+  
+  # Filesystem restrictions
+  fsGroup:
+    type: MustRunAs
+    ranges:
+      - min: 1000
+        max: 65535
+  readOnlyRootFilesystem: false  # Set to true after ensuring app compatibility
+  
+  # Volume restrictions
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+    - downwardAPI
+    - persistentVolumeClaim
+    - csi
+  
+  # SELinux (if enabled)
+  seLinuxContext:
+    type: MustRunAs
+  
+  # Seccomp
+  seccompProfiles:
+    - type: "RuntimeDefault"
+  
+  # AppArmor (if enabled)
+  # This would be configured based on the cluster's AppArmor policies
+
+---
+# Network Policy for Pod Security Standards enforcement
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pod-security-enforcement
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "pod-security"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  podSelector:
+    matchLabels:
+      security.cybersentinel.io/enforce: "restricted"
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  # Default deny with explicit allows
+  ingress:
+    # Only allow ingress from approved sources
+    - from:
+        # Same namespace
+        - namespaceSelector:
+            matchLabels:
+              name: cybersentinel
+        # Monitoring namespace for metrics collection
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+        # Load balancer traffic
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+  
+  egress:
+    # DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    
+    # Internal service communication
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cybersentinel
+    
+    # External APIs (AWS, OpenAI, etc.)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    
+    # Monitoring and logging
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4318  # OTLP HTTP
+        - protocol: TCP
+          port: 4317  # OTLP gRPC
+
+---
+# Pod Disruption Budget for security-critical components
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cybersentinel-security-pdb
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "availability"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      security.cybersentinel.io/critical: "true"
+
+---
+# Resource Quota for security compliance
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: cybersentinel-security-quota
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "resource-limits"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  hard:
+    # Compute resources
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "20"
+    limits.memory: "40Gi"
+    
+    # Storage resources
+    persistentvolumeclaims: "10"
+    requests.storage: "100Gi"
+    
+    # Kubernetes objects
+    pods: "50"
+    services: "20"
+    secrets: "20"
+    configmaps: "20"
+    
+    # Security objects
+    networkpolicies: "20"
+    poddisruptionbudgets: "10"
+
+---
+# Limit Range for resource constraints
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: cybersentinel-security-limits
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/type: "resource-limits"
+    app.kubernetes.io/part-of: "cybersentinel"
+spec:
+  limits:
+    # Container limits
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+      max:
+        cpu: "2000m"
+        memory: "4Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      maxLimitRequestRatio:
+        cpu: "4"
+        memory: "4"
+    
+    # Pod limits
+    - type: Pod
+      max:
+        cpu: "4000m"
+        memory: "8Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+    
+    # PVC limits
+    - type: PersistentVolumeClaim
+      max:
+        storage: "100Gi"
+      min:
+        storage: "1Gi"
+
+---
+# ServiceAccount with minimal permissions
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cybersentinel-restricted
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/level: "restricted"
+    app.kubernetes.io/part-of: "cybersentinel"
+  annotations:
+    # IRSA annotation (to be populated by Terraform)
+    eks.amazonaws.com/role-arn: ""
+    security.cybersentinel.io/description: "Service account with minimal required permissions"
+automountServiceAccountToken: true
+
+---
+# Role with minimal required permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cybersentinel-restricted
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/level: "restricted"
+    app.kubernetes.io/part-of: "cybersentinel"
+rules:
+  # Minimal permissions for application operations
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  
+  # Metrics and health checks
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+
+---
+# RoleBinding for service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cybersentinel-restricted
+  namespace: cybersentinel
+  labels:
+    security.cybersentinel.io/level: "restricted"
+    app.kubernetes.io/part-of: "cybersentinel"
+subjects:
+  - kind: ServiceAccount
+    name: cybersentinel-restricted
+    namespace: cybersentinel
+roleRef:
+  kind: Role
+  name: cybersentinel-restricted
+  apiGroup: rbac.authorization.k8s.io

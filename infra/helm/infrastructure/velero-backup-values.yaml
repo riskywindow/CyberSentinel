@@ -1,0 +1,398 @@
+# Velero Backup Solution Helm Values
+# This configures Velero for comprehensive backup and disaster recovery
+
+# Global configuration
+global:
+  # AWS account ID - will be populated by Terraform
+  awsAccountId: ""
+  # AWS region
+  region: "us-west-2"
+  # Environment name (dev, staging, prod)
+  environment: ""
+  # Project name
+  projectName: "cybersentinel"
+  # EKS cluster name
+  clusterName: ""
+  # S3 bucket for backups
+  backupBucket: ""
+
+# Velero configuration
+velero:
+  # Image configuration
+  image:
+    repository: velero/velero
+    tag: v1.12.1
+    pullPolicy: IfNotPresent
+
+  # Service Account configuration with IRSA
+  serviceAccount:
+    create: true
+    name: velero
+    annotations:
+      # IRSA role ARN - populated by Terraform
+      eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/{{ .Values.global.projectName }}-{{ .Values.global.environment }}-velero"
+
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 500m
+      memory: 128Mi
+
+  # Node selector for system nodes
+  nodeSelector:
+    role: "system"
+
+  # Tolerations for system nodes
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Configuration
+  configuration:
+    # Cloud provider
+    provider: aws
+    
+    # Backup storage location configuration
+    backupStorageLocation:
+      - name: default
+        provider: aws
+        bucket: "{{ .Values.global.backupBucket }}"
+        config:
+          region: "{{ .Values.global.region }}"
+          # Use IRSA for authentication
+          # serverSideEncryption: AES256  # Can use KMS for enhanced security
+        credential:
+          name: ""  # Empty when using IRSA
+          key: ""   # Empty when using IRSA
+
+    # Volume snapshot location (for EBS snapshots)
+    volumeSnapshotLocation:
+      - name: default
+        provider: aws
+        config:
+          region: "{{ .Values.global.region }}"
+        credential:
+          name: ""  # Empty when using IRSA
+          key: ""   # Empty when using IRSA
+
+    # Default backup retention period
+    defaultBackupTTL: "720h"  # 30 days
+
+    # Default volume snapshot locations
+    defaultVolumeSnapshotLocations:
+      aws: default
+
+    # Features configuration
+    features: ""
+    
+    # Log level
+    logLevel: info
+    
+    # Log format
+    logFormat: text
+
+    # Garbage collection frequency
+    garbageCollectionFrequency: 72h
+
+    # Default backup storage class mapping
+    restoreResourcePriorities: "securitycontextconstraints,customresourcedefinitions,namespaces,storageclasses,volumesnapshotclass.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io,volumesnapshots.snapshot.storage.k8s.io,persistentvolumes,persistentvolumeclaims,secrets,configmaps,serviceaccounts,limitranges,pods,replicasets.apps,clusterroles.rbac.authorization.k8s.io,clusterrolebindings.rbac.authorization.k8s.io,roles.rbac.authorization.k8s.io,rolebindings.rbac.authorization.k8s.io,networkpolicies.networking.k8s.io,admissionregistration.k8s.io,events.events.k8s.io,backups.velero.io,restores.velero.io,resticrepositories.velero.io"
+
+  # Environment variables
+  extraEnvVars:
+    - name: AWS_CLUSTER_NAME
+      value: "{{ .Values.global.clusterName }}"
+    - name: AWS_REGION
+      value: "{{ .Values.global.region }}"
+
+  # Init containers for plugins
+  initContainers:
+    - name: velero-plugin-for-aws
+      image: velero/velero-plugin-for-aws:v1.8.1
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /target
+          name: plugins
+
+  # Metrics configuration
+  metrics:
+    enabled: true
+    scrapeInterval: 30s
+    scrapeTimeout: 10s
+
+    # Service monitor for Prometheus
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+      labels:
+        environment: "{{ .Values.global.environment }}"
+
+# Backup Schedules Configuration
+backupSchedules:
+  # Daily backup for critical namespaces
+  daily-critical:
+    enabled: true
+    schedule: "0 1 * * *"  # 1 AM daily
+    template:
+      includedNamespaces:
+        - cybersentinel
+        - kube-system
+        - amazon-cloudwatch
+      excludedResources:
+        - events
+        - events.events.k8s.io
+      ttl: "168h"  # 7 days retention
+      storageLocation: default
+      volumeSnapshotLocations:
+        - default
+      metadata:
+        labels:
+          velero.io/schedule-name: daily-critical
+          backup-type: daily
+          environment: "{{ .Values.global.environment }}"
+
+  # Weekly full cluster backup
+  weekly-full:
+    enabled: true
+    schedule: "0 2 * * 0"  # 2 AM every Sunday
+    template:
+      includedNamespaces: []  # All namespaces
+      excludedResources:
+        - events
+        - events.events.k8s.io
+        - nodes
+      includeClusterResources: true
+      ttl: "720h"  # 30 days retention
+      storageLocation: default
+      volumeSnapshotLocations:
+        - default
+      metadata:
+        labels:
+          velero.io/schedule-name: weekly-full
+          backup-type: weekly
+          environment: "{{ .Values.global.environment }}"
+
+  # Monthly archive backup (production only)
+  monthly-archive:
+    enabled: false  # Will be enabled in production environment
+    schedule: "0 3 1 * *"  # 3 AM on 1st of each month
+    template:
+      includedNamespaces: []  # All namespaces
+      excludedResources:
+        - events
+        - events.events.k8s.io
+        - nodes
+      includeClusterResources: true
+      ttl: "2160h"  # 90 days retention
+      storageLocation: default
+      volumeSnapshotLocations:
+        - default
+      metadata:
+        labels:
+          velero.io/schedule-name: monthly-archive
+          backup-type: archive
+          environment: "{{ .Values.global.environment }}"
+
+# Restore configuration
+restoreSettings:
+  # Restore resource priorities
+  restoreResourcePriorities: "securitycontextconstraints,customresourcedefinitions,namespaces,storageclasses,volumesnapshotclass.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io,volumesnapshots.snapshot.storage.k8s.io,persistentvolumes,persistentvolumeclaims,secrets,configmaps,serviceaccounts,limitranges,pods"
+  
+  # Default restore options
+  defaultRestore:
+    includedNamespaces: []
+    excludedNamespaces:
+      - kube-node-lease
+      - kube-public
+    includeClusterResources: true
+    restorePVs: true
+
+# Restic configuration for file-level backup
+restic:
+  enabled: true
+  podVolumePath: /var/lib/kubelet/pods
+  privileged: false
+  
+  # Resource configuration for restic
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+  # Security context for restic
+  securityContext:
+    runAsUser: 0  # Required for volume access
+    privileged: false
+    allowPrivilegeEscalation: false
+
+  # Tolerations for restic DaemonSet
+  tolerations:
+    - operator: Exists
+
+# Environment-specific overrides
+environments:
+  dev:
+    velero:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 256Mi
+        requests:
+          cpu: 200m
+          memory: 64Mi
+    configuration:
+      defaultBackupTTL: "168h"  # 7 days for dev
+      garbageCollectionFrequency: 24h
+    backupSchedules:
+      daily-critical:
+        schedule: "0 2 * * *"  # 2 AM daily
+        template:
+          ttl: "72h"  # 3 days retention in dev
+      weekly-full:
+        enabled: false  # Disable weekly in dev
+      monthly-archive:
+        enabled: false
+    restic:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+    
+  staging:
+    velero:
+      resources:
+        limits:
+          cpu: 750m
+          memory: 384Mi
+        requests:
+          cpu: 300m
+          memory: 96Mi
+    configuration:
+      defaultBackupTTL: "336h"  # 14 days for staging
+      garbageCollectionFrequency: 48h
+    backupSchedules:
+      daily-critical:
+        schedule: "0 1 * * *"  # 1 AM daily
+        template:
+          ttl: "168h"  # 7 days retention in staging
+      weekly-full:
+        enabled: true
+        template:
+          ttl: "336h"  # 14 days retention
+      monthly-archive:
+        enabled: false
+    
+  prod:
+    velero:
+      resources:
+        limits:
+          cpu: 2000m
+          memory: 1Gi
+        requests:
+          cpu: 1000m
+          memory: 256Mi
+    configuration:
+      defaultBackupTTL: "2160h"  # 90 days for production
+      garbageCollectionFrequency: 72h
+      logLevel: info
+    backupSchedules:
+      daily-critical:
+        schedule: "0 1 * * *"  # 1 AM daily
+        template:
+          ttl: "720h"  # 30 days retention in production
+      weekly-full:
+        enabled: true
+        template:
+          ttl: "1440h"  # 60 days retention
+      monthly-archive:
+        enabled: true
+        template:
+          ttl: "4320h"  # 180 days retention for archives
+    restic:
+      resources:
+        limits:
+          cpu: 2000m
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 512Mi
+
+# Monitoring and alerting
+monitoring:
+  # Prometheus monitoring
+  prometheus:
+    enabled: true
+    rules:
+      enabled: true
+      
+  # Backup monitoring rules
+  alertRules:
+    # Failed backup alert
+    backupFailed:
+      enabled: true
+      severity: warning
+      threshold: 1
+      for: 5m
+      message: "Velero backup has failed in {{ .Values.global.environment }} environment"
+      
+    # Missing backup alert
+    backupMissing:
+      enabled: true
+      severity: critical  
+      threshold: "25h"  # Alert if no backup in 25 hours
+      message: "No Velero backup completed in the last 25 hours"
+      
+    # Backup size anomaly
+    backupSizeAnomaly:
+      enabled: true
+      severity: warning
+      # Alert if backup size deviates significantly
+      message: "Backup size anomaly detected - may indicate data loss or corruption"
+
+# RBAC configuration
+rbac:
+  create: true
+  clusterAdministrator: false  # Use minimal permissions
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 0  # Single pod, can tolerate disruption
+
+# Cleanup configuration
+cleanup:
+  enabled: true
+  # Cleanup jobs for expired backups
+  schedule: "0 4 * * *"  # 4 AM daily cleanup
+
+# Additional labels
+extraLabels:
+  app.kubernetes.io/component: "backup"
+  app.kubernetes.io/part-of: "cybersentinel"

@@ -11,6 +11,27 @@ app:
   version: "1.0.0"
   environment: "dev"
 
+# Service Account Configuration
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# Secrets Configuration (for development, use External Secrets in production)
+secrets:
+  jwtSecret: ""
+  apiKey: ""
+  postgres:
+    user: ""
+    password: ""
+  redis:
+    authToken: ""
+  clickhouse:
+    password: ""
+  neo4j:
+    password: ""
+
 # API Service Configuration
 api:
   enabled: true
@@ -85,6 +106,8 @@ ui:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  
+  env: []
 
 # Agent Services Configuration
 agents:
@@ -102,6 +125,17 @@ agents:
       requests:
         cpu: 250m
         memory: 512Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 65
+      targetMemoryUtilizationPercentage: 75
+    dedupThreshold: "0.8"
+    alertWindowHours: "1"
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
   
   analyst:
     enabled: true
@@ -117,6 +151,18 @@ agents:
       requests:
         cpu: 500m
         memory: 1Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    confidenceThreshold: "0.7"
+    maxHypothesisEntities: "50"
+    sigmaValidation: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
   
   responder:
     enabled: true
@@ -132,6 +178,24 @@ agents:
       requests:
         cpu: 250m
         memory: 512Mi
+    autoscaling:
+      enabled: false  # Disabled for critical single-replica service
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 75
+      targetMemoryUtilizationPercentage: 85
+    playbookTimeoutSeconds: 600
+    maxConcurrentPlaybooks: 5
+    dryRunMode: false
+    riskAssessment:
+      enabled: true
+      autoApproveLowRisk: true
+      requireApprovalHighRisk: true
+    audit:
+      enabled: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
 
 # Red Team Simulator Configuration
 redteam:
@@ -148,10 +212,48 @@ redteam:
     requests:
       cpu: 1000m
       memory: 2Gi
+  service:
+    type: ClusterIP
+    port: 8004
+    targetPort: 8004
+    annotations: {}
+  # Red Team simulation configuration
+  simulationInterval: "300"  # seconds
+  campaignIntensity: "medium"  # low, medium, high, extreme
+  maxConcurrentCampaigns: "3"
+  telemetryRateLimit: "1000"  # events per second
+  adversaryProfiles:
+    enabled: true
+    profiles: ["apt1", "apt29", "apt40", "lazarus", "carbanak"]
+  mitreAttackCoverage: "comprehensive"  # basic, standard, comprehensive
+  nodeSelector: {}
+  tolerations: []
+  autoscaling:
+    enabled: false  # Disabled by default for resource-intensive workloads
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 85
+    scaleDownStabilizationWindowSeconds: 300
+    scaleUpStabilizationWindowSeconds: 60
+    scaleDownPercent: 25
+    scaleUpPercent: 50
+    scaleUpPods: 1
+  affinity:
+    # Prefer nodes with high CPU for intensive simulation workloads
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: node.kubernetes.io/instance-type
+            operator: In
+            values: ["c5.xlarge", "c5.2xlarge", "c5.4xlarge"]
 
 # Evaluation Harness Configuration
 evaluation:
   enabled: true
+  deploymentType: "deployment"  # "deployment" or "cronjob"
   replicaCount: 1
   image:
     repository: cybersentinel/evaluation-harness
@@ -164,6 +266,43 @@ evaluation:
     requests:
       cpu: 500m
       memory: 1Gi
+  service:
+    type: ClusterIP
+    port: 8005
+    targetPort: 8005
+    annotations: {}
+  # Evaluation configuration
+  mode: "continuous"  # continuous, batch, on-demand
+  maxConcurrentScenarios: "5"
+  scenarioTimeout: "600"  # seconds
+  reportRetention: "30"  # days
+  # CronJob configuration (when deploymentType is "cronjob")
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  timezone: "UTC"
+  concurrencyPolicy: "Forbid"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  # Performance and metrics
+  performanceBaseline:
+    enabled: true
+    updateInterval: "24h"
+  metricsCollection:
+    enabled: true
+    interval: "30s"
+  autoscaling:
+    enabled: false  # Disabled by default to avoid interference with batch evaluations
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    scaleDownStabilizationWindowSeconds: 300
+    scaleUpStabilizationWindowSeconds: 60
+    scaleDownPercent: 50
+    scaleUpPercent: 100
+    scaleUpPods: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 # Ingress Configuration
 ingress:
@@ -200,20 +339,48 @@ persistence:
   size: 10Gi
   storageClass: "gp3"
   annotations: {}
+  # Service-specific storage sizes
+  faissIndexSize: "5Gi"
+  redteamSize: "10Gi"
+  evaluationSize: "5Gi"
+  evaluationReportsSize: "20Gi"
 
-# Service Monitor for Prometheus
-serviceMonitor:
-  enabled: true
-  namespace: monitoring
-  labels: {}
-  annotations: {}
-  interval: 30s
-  scrapeTimeout: 10s
+# Monitoring Configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels: {}
+    annotations: {}
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+  tracing:
+    enabled: true
+    endpoint: "http://tempo:4318"
+    serviceName: "cybersentinel"
+    samplingRatio: 0.1
+  metrics:
+    enabled: true
+    port: 9000
 
 # Pod Disruption Budget
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1
+  api:
+    minAvailable: "50%"
+  ui:
+    minAvailable: "50%"
+  scout:
+    minAvailable: "50%"
+  analyst:
+    minAvailable: "67%"  # More conservative for ML workloads
+  responder:
+    minAvailable: 1      # Critical service protection
+  redteam:
+    minAvailable: 1      # Simulation continuity
+  evaluation:
+    minAvailable: 1      # Testing continuity
 
 # Network Policies
 networkPolicy:
@@ -222,6 +389,12 @@ networkPolicy:
     enabled: true
   egress:
     enabled: true
+
+# RBAC Configuration
+rbac:
+  enabled: true
+  clusterRole:
+    enabled: false  # Set to true for cross-namespace monitoring
 
 # Security Context
 securityContext:
@@ -278,6 +451,29 @@ nats:
         cpu: 250m
         memory: 512Mi
 
+# Storage Configuration
+storage:
+  s3:
+    bucketData: ""
+    bucketLogs: ""
+    bucketBackups: ""
+    region: "us-west-2"
+
+# Security Configuration
+security:
+  enabled: true
+  tls:
+    enabled: true
+  auth:
+    enabled: true
+
+# Feature Flags
+features:
+  graphVisualization: true
+  realTimeAnalysis: true
+  automatedResponse: false
+  threatIntelligence: true
+
 # External Secrets Configuration
 externalSecrets:
   enabled: true
@@ -285,6 +481,8 @@ externalSecrets:
     provider: aws
     region: us-west-2
     role: ""
+  apiSecretsPath: "cybersentinel/api"
+  dbSecretsPath: "cybersentinel/database"
 
 # Backup Configuration
 backup:
@@ -296,11 +494,11 @@ backup:
     bucket: ""
     region: us-west-2
 
-# Monitoring and Observability
-monitoring:
-  enabled: true
+# Additional Monitoring Components
+additionalMonitoring:
   prometheus:
     enabled: true
+    port: 9090
   grafana:
     enabled: true
   loki:
@@ -312,11 +510,26 @@ monitoring:
 resourceQuota:
   enabled: true
   hard:
+    # CPU and Memory
     requests.cpu: "10"
     requests.memory: "20Gi"
     limits.cpu: "20"
     limits.memory: "40Gi"
+    # Storage
     persistentvolumeclaims: "10"
+    requests.storage: "100Gi"
+    # Kubernetes Objects
+    pods: "50"
+    services: "20"
+    secrets: "20"
+    configmaps: "20"
+    # Workloads
+    deployments: "20"
+    statefulsets: "5"
+    jobs: "10"
+    # Security Objects
+    networkpolicies: "20"
+    poddisruptionbudgets: "10"
 
 # Limit Ranges
 limitRange:
@@ -328,4 +541,25 @@ limitRange:
       defaultRequest:
         cpu: "100m"
         memory: "256Mi"
+      max:
+        cpu: "2000m"
+        memory: "4Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      maxLimitRequestRatio:
+        cpu: "4"
+        memory: "4"
       type: Container
+  pod:
+    max:
+      cpu: "4000m"
+      memory: "8Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+  pvc:
+    max:
+      storage: "100Gi"
+    min:
+      storage: "1Gi"

@@ -1,0 +1,403 @@
+---
+# ApplicationSet for Environment-based Deployments
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cybersentinel-environments
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-environments
+    app.kubernetes.io/component: applicationset
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  generators:
+  # Git generator for different environment branches
+  - git:
+      repoURL: https://github.com/cybersentinel/cybersentinel
+      revision: HEAD
+      directories:
+      - path: infra/environments/*
+      - path: infra/environments/*/apps
+        exclude: true
+  
+  # Matrix generator combining environments with deployment configs
+  - matrix:
+      generators:
+      # Environment list generator
+      - list:
+          elements:
+          - environment: dev
+            branch: develop
+            namespace: cybersentinel-dev
+            replicas: "1"
+            autoSync: "true"
+            imageTag: "develop-latest"
+            domain: "dev.${DOMAIN_NAME}"
+            resources:
+              cpu: "100m"
+              memory: "256Mi"
+            ingress:
+              class: "aws-load-balancer-controller"
+              tls: "false"
+          - environment: staging
+            branch: staging
+            namespace: cybersentinel-staging
+            replicas: "2"
+            autoSync: "true"
+            imageTag: "staging-latest"
+            domain: "staging.${DOMAIN_NAME}"
+            resources:
+              cpu: "200m"
+              memory: "512Mi"
+            ingress:
+              class: "aws-load-balancer-controller"
+              tls: "true"
+          - environment: prod
+            branch: main
+            namespace: cybersentinel
+            replicas: "3"
+            autoSync: "false"
+            imageTag: "v1.0.0"
+            domain: "${DOMAIN_NAME}"
+            resources:
+              cpu: "500m"
+              memory: "1Gi"
+            ingress:
+              class: "aws-load-balancer-controller"
+              tls: "true"
+      
+      # Component list generator
+      - list:
+          elements:
+          - component: api
+            port: "8000"
+            healthPath: "/health"
+          - component: ui
+            port: "3000"
+            healthPath: "/health"
+          - component: scout
+            port: "8001"
+            healthPath: "/health"
+          - component: analyst
+            port: "8002"
+            healthPath: "/health"
+          - component: responder
+            port: "8003"
+            healthPath: "/health"
+  
+  template:
+    metadata:
+      name: cybersentinel-{{environment}}-{{component}}
+      labels:
+        environment: "{{environment}}"
+        component: "{{component}}"
+        app.kubernetes.io/name: cybersentinel-{{component}}
+        app.kubernetes.io/component: "{{component}}"
+        app.kubernetes.io/part-of: cybersentinel
+        app.kubernetes.io/instance: "{{environment}}"
+      annotations:
+        notifications.argoproj.io/subscribe.on-deployed.slack: "{{environment}}"
+        notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+        notifications.argoproj.io/subscribe.on-sync-failed.slack: "critical"
+    spec:
+      project: cybersentinel
+      source:
+        repoURL: https://github.com/cybersentinel/cybersentinel
+        targetRevision: "{{branch}}"
+        path: infra/helm/cybersentinel
+        helm:
+          valueFiles:
+          - values.yaml
+          - values-{{environment}}.yaml
+          parameters:
+          - name: global.environment
+            value: "{{environment}}"
+          - name: global.domain
+            value: "{{domain}}"
+          - name: image.tag
+            value: "{{imageTag}}"
+          - name: {{component}}.replicaCount
+            value: "{{replicas}}"
+          - name: {{component}}.resources.requests.cpu
+            value: "{{resources.cpu}}"
+          - name: {{component}}.resources.requests.memory
+            value: "{{resources.memory}}"
+          - name: {{component}}.service.port
+            value: "{{port}}"
+          - name: {{component}}.healthCheck.path
+            value: "{{healthPath}}"
+          - name: ingress.className
+            value: "{{ingress.class}}"
+          - name: ingress.tls.enabled
+            value: "{{ingress.tls}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: "{{autoSync}}"
+          selfHeal: "{{autoSync}}"
+        syncOptions:
+        - CreateNamespace=true
+        - PrunePropagationPolicy=foreground
+        retry:
+          limit: 3
+          backoff:
+            duration: 10s
+            maxDuration: 3m
+      info:
+      - name: Environment
+        value: "{{environment}}"
+      - name: Component
+        value: "{{component}}"
+      - name: Auto-sync
+        value: "{{autoSync}}"
+
+---
+# ApplicationSet for Progressive Rollouts
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cybersentinel-rollout
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-rollout
+    app.kubernetes.io/component: applicationset
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  generators:
+  # Progressive rollout generator
+  - list:
+      elements:
+      # Stage 1: Canary deployment (5% traffic)
+      - stage: canary
+        weight: "5"
+        duration: "5m"
+        environment: prod
+        namespace: cybersentinel
+        replicas: "1"
+        analysis: "true"
+        autoPromote: "false"
+        
+      # Stage 2: Blue-green deployment (50% traffic)
+      - stage: blue-green
+        weight: "50"
+        duration: "10m"
+        environment: prod
+        namespace: cybersentinel
+        replicas: "2"
+        analysis: "true"
+        autoPromote: "false"
+        
+      # Stage 3: Full rollout (100% traffic)
+      - stage: stable
+        weight: "100"
+        duration: "0"
+        environment: prod
+        namespace: cybersentinel
+        replicas: "3"
+        analysis: "false"
+        autoPromote: "true"
+  
+  template:
+    metadata:
+      name: cybersentinel-{{stage}}-rollout
+      labels:
+        rollout-stage: "{{stage}}"
+        app.kubernetes.io/name: cybersentinel-rollout
+        app.kubernetes.io/component: rollout
+        app.kubernetes.io/part-of: cybersentinel
+      annotations:
+        notifications.argoproj.io/subscribe.on-deployed.slack: "critical"
+        notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+        argocd.argoproj.io/sync-wave: "{{weight}}"
+    spec:
+      project: cybersentinel
+      source:
+        repoURL: https://github.com/cybersentinel/cybersentinel
+        targetRevision: main
+        path: infra/k8s/rollouts
+        helm:
+          parameters:
+          - name: rollout.stage
+            value: "{{stage}}"
+          - name: rollout.weight
+            value: "{{weight}}"
+          - name: rollout.duration
+            value: "{{duration}}"
+          - name: rollout.replicas
+            value: "{{replicas}}"
+          - name: rollout.analysis.enabled
+            value: "{{analysis}}"
+          - name: rollout.autoPromote
+            value: "{{autoPromote}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated: null  # Manual sync for rollout stages
+        syncOptions:
+        - PrunePropagationPolicy=foreground
+        - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 1
+      info:
+      - name: Rollout Stage
+        value: "{{stage}}"
+      - name: Traffic Weight
+        value: "{{weight}}%"
+      - name: Duration
+        value: "{{duration}}"
+
+---
+# ApplicationSet for Multi-Region Deployments
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cybersentinel-regions
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-regions
+    app.kubernetes.io/component: applicationset
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  generators:
+  # Multi-region generator (future use)
+  - list:
+      elements:
+      - region: us-west-2
+        primary: "true"
+        weight: "70"
+        cluster: "https://kubernetes.default.svc"
+        domain: "us-west.${DOMAIN_NAME}"
+      - region: us-east-1
+        primary: "false"
+        weight: "30"
+        cluster: "https://us-east-cluster.example.com"
+        domain: "us-east.${DOMAIN_NAME}"
+  
+  template:
+    metadata:
+      name: cybersentinel-{{region}}
+      labels:
+        region: "{{region}}"
+        primary: "{{primary}}"
+        app.kubernetes.io/name: cybersentinel
+        app.kubernetes.io/component: application
+        app.kubernetes.io/part-of: cybersentinel
+        app.kubernetes.io/instance: "{{region}}"
+      annotations:
+        notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+        notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    spec:
+      project: cybersentinel
+      source:
+        repoURL: https://github.com/cybersentinel/cybersentinel
+        targetRevision: main
+        path: infra/helm/cybersentinel
+        helm:
+          valueFiles:
+          - values.yaml
+          - values-prod.yaml
+          - values-{{region}}.yaml
+          parameters:
+          - name: global.region
+            value: "{{region}}"
+          - name: global.domain
+            value: "{{domain}}"
+          - name: global.primary
+            value: "{{primary}}"
+          - name: traffic.weight
+            value: "{{weight}}"
+      destination:
+        server: "{{cluster}}"
+        namespace: cybersentinel
+      syncPolicy:
+        automated:
+          prune: false  # Careful with multi-region
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=false
+        - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 2
+      info:
+      - name: Region
+        value: "{{region}}"
+      - name: Primary
+        value: "{{primary}}"
+      - name: Traffic Weight
+        value: "{{weight}}%"
+
+---
+# ApplicationSet for Feature Branches
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cybersentinel-feature-branches
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-features
+    app.kubernetes.io/component: applicationset
+    app.kubernetes.io/part-of: cybersentinel
+spec:
+  generators:
+  # Git generator for feature branches
+  - git:
+      repoURL: https://github.com/cybersentinel/cybersentinel
+      revision: HEAD
+      files:
+      - path: "infra/feature-environments/*.yaml"
+  
+  template:
+    metadata:
+      name: cybersentinel-feature-{{path.basename}}
+      labels:
+        feature-branch: "{{path.basename}}"
+        app.kubernetes.io/name: cybersentinel-feature
+        app.kubernetes.io/component: feature
+        app.kubernetes.io/part-of: cybersentinel
+      annotations:
+        notifications.argoproj.io/subscribe.on-deployed.slack: "dev"
+        notifications.argoproj.io/subscribe.on-health-degraded.slack: "dev"
+        argocd.argoproj.io/hook.Sync.PostSync: "true"
+    spec:
+      project: cybersentinel
+      source:
+        repoURL: https://github.com/cybersentinel/cybersentinel
+        targetRevision: "feature/{{path.basename}}"
+        path: infra/helm/cybersentinel
+        helm:
+          valueFiles:
+          - values.yaml
+          - values-dev.yaml
+          parameters:
+          - name: global.environment
+            value: "feature-{{path.basename}}"
+          - name: global.domain
+            value: "{{path.basename}}.dev.${DOMAIN_NAME}"
+          - name: image.tag
+            value: "feature-{{path.basename}}"
+          - name: replicaCount
+            value: "1"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: cybersentinel-feature-{{path.basename}}
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+        - PrunePropagationPolicy=foreground
+        retry:
+          limit: 2
+      # Auto-cleanup after 7 days
+      revisionHistoryLimit: 3
+      info:
+      - name: Feature Branch
+        value: "{{path.basename}}"
+      - name: Type
+        value: "Feature Environment"
+      - name: Auto-cleanup
+        value: "7 days"

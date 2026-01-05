@@ -1,0 +1,579 @@
+---
+# Enhanced Alert Rules for CyberSentinel
+# Production-ready alert rules with comprehensive coverage
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-enhanced-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+data:
+  # Infrastructure alert rules
+  infrastructure.yml: |
+    groups:
+    - name: infrastructure.rules
+      interval: 30s
+      rules:
+      
+      # Node health alerts
+      - alert: KubernetesNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 10m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Kubernetes Node not ready"
+          description: "Node {{ $labels.node }} has been NotReady for more than 10 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/node-not-ready"
+      
+      - alert: KubernetesNodeMemoryPressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Kubernetes Node under memory pressure"
+          description: "Node {{ $labels.node }} is under memory pressure."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/memory-pressure"
+      
+      - alert: KubernetesNodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Kubernetes Node under disk pressure"
+          description: "Node {{ $labels.node }} is under disk pressure."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/disk-pressure"
+      
+      # Disk space alerts
+      - alert: NodeDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Node disk space is low"
+          description: "Disk space on {{ $labels.instance }} is below 10% ({{ $value }}%)"
+          runbook_url: "https://runbooks.cybersentinel.com/infrastructure/disk-space"
+      
+      - alert: NodeDiskSpaceWarning
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Node disk space is getting low"
+          description: "Disk space on {{ $labels.instance }} is below 20% ({{ $value }}%)"
+          runbook_url: "https://runbooks.cybersentinel.com/infrastructure/disk-space"
+      
+      # Memory alerts
+      - alert: NodeMemoryUsageHigh
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Node memory usage is high"
+          description: "Memory usage on {{ $labels.instance }} is above 90% ({{ $value }}%)"
+          runbook_url: "https://runbooks.cybersentinel.com/infrastructure/memory-usage"
+      
+      - alert: NodeMemoryUsageWarning
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Node memory usage is high"
+          description: "Memory usage on {{ $labels.instance }} is above 80% ({{ $value }}%)"
+          runbook_url: "https://runbooks.cybersentinel.com/infrastructure/memory-usage"
+      
+      # CPU alerts
+      - alert: NodeCPUUsageHigh
+        expr: 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance) * 100) > 90
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Node CPU usage is high"
+          description: "CPU usage on {{ $labels.instance }} is above 90% ({{ $value }}%)"
+          runbook_url: "https://runbooks.cybersentinel.com/infrastructure/cpu-usage"
+      
+      # Load average alerts
+      - alert: NodeLoadAverageHigh
+        expr: node_load15 / count(node_cpu_seconds_total{mode="idle"}) by (instance) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Node load average is high"
+          description: "Load average on {{ $labels.instance }} is {{ $value }}"
+          runbook_url: "https://runbooks.cybersentinel.com/infrastructure/load-average"
+
+  # Kubernetes cluster alert rules
+  kubernetes.yml: |
+    groups:
+    - name: kubernetes.rules
+      interval: 30s
+      rules:
+      
+      # Pod alerts
+      - alert: KubernetesPodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Pod is crash looping"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/crash-loop"
+      
+      - alert: KubernetesPodNotReady
+        expr: kube_pod_status_ready{condition="true"} == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Pod not ready"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been not ready for more than 10 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/pod-not-ready"
+      
+      # Deployment alerts
+      - alert: KubernetesDeploymentReplicasMismatch
+        expr: kube_deployment_status_replicas != kube_deployment_spec_replicas
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Deployment replicas mismatch"
+          description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has {{ $labels.replicas }} replicas available, expected {{ $labels.spec_replicas }}."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/deployment-replicas"
+      
+      - alert: KubernetesDeploymentGenerationMismatch
+        expr: kube_deployment_status_observed_generation != kube_deployment_metadata_generation
+        for: 15m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Deployment generation mismatch"
+          description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} is not up to date."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/deployment-generation"
+      
+      # StatefulSet alerts
+      - alert: KubernetesStatefulSetReplicasMismatch
+        expr: kube_statefulset_status_replicas_ready != kube_statefulset_status_replicas
+        for: 15m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "StatefulSet replicas mismatch"
+          description: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has {{ $labels.replicas_ready }} ready replicas, expected {{ $labels.replicas }}."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/statefulset-replicas"
+      
+      # PersistentVolume alerts
+      - alert: KubernetesPersistentVolumeClaimLost
+        expr: kube_persistentvolumeclaim_status_phase{phase="Lost"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "PersistentVolumeClaim is lost"
+          description: "PersistentVolumeClaim {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is lost."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/pvc-lost"
+      
+      # Resource quota alerts
+      - alert: KubernetesResourceQuotaExceeded
+        expr: kube_resourcequota{type="used"} / ignoring(instance, job, type) (kube_resourcequota{type="hard"} > 0) > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Resource quota exceeded"
+          description: "Namespace {{ $labels.namespace }} is using {{ $value | humanizePercentage }} of its {{ $labels.resource }} quota."
+          runbook_url: "https://runbooks.cybersentinel.com/kubernetes/resource-quota"
+
+  # Application alert rules
+  cybersentinel.yml: |
+    groups:
+    - name: cybersentinel.rules
+      interval: 15s
+      rules:
+      
+      # API service alerts
+      - alert: CyberSentinelAPIDown
+        expr: up{job="cybersentinel-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: application
+          service: api
+        annotations:
+          summary: "CyberSentinel API is down"
+          description: "CyberSentinel API has been down for more than 1 minute."
+          runbook_url: "https://runbooks.cybersentinel.com/application/api-down"
+      
+      - alert: CyberSentinelAPIHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="cybersentinel-api"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: application
+          service: api
+        annotations:
+          summary: "CyberSentinel API high latency"
+          description: "95th percentile response time is {{ $value }}s for 5 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/high-latency"
+      
+      - alert: CyberSentinelAPIHighErrorRate
+        expr: rate(http_requests_total{job="cybersentinel-api",status=~"5.."}[5m]) / rate(http_requests_total{job="cybersentinel-api"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: application
+          service: api
+        annotations:
+          summary: "CyberSentinel API high error rate"
+          description: "Error rate is {{ $value | humanizePercentage }} for 5 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/high-error-rate"
+      
+      - alert: CyberSentinelAPIHighRequestRate
+        expr: rate(http_requests_total{job="cybersentinel-api"}[5m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: application
+          service: api
+        annotations:
+          summary: "CyberSentinel API high request rate"
+          description: "Request rate is {{ $value }} requests/second for 10 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/high-request-rate"
+      
+      # Agent service alerts
+      - alert: CyberSentinelScoutAgentDown
+        expr: up{job="cybersentinel-agents",app_kubernetes_io_component="scout"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: application
+          service: scout
+        annotations:
+          summary: "CyberSentinel Scout Agent is down"
+          description: "Scout Agent has been down for more than 2 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/scout-down"
+      
+      - alert: CyberSentinelAnalystAgentDown
+        expr: up{job="cybersentinel-agents",app_kubernetes_io_component="analyst"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: application
+          service: analyst
+        annotations:
+          summary: "CyberSentinel Analyst Agent is down"
+          description: "Analyst Agent has been down for more than 2 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/analyst-down"
+      
+      - alert: CyberSentinelResponderAgentDown
+        expr: up{job="cybersentinel-agents",app_kubernetes_io_component="responder"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: application
+          service: responder
+        annotations:
+          summary: "CyberSentinel Responder Agent is down"
+          description: "Responder Agent has been down for more than 2 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/responder-down"
+      
+      # Detection performance alerts
+      - alert: CyberSentinelLowDetectionRate
+        expr: rate(detections_total[10m]) < 0.01
+        for: 15m
+        labels:
+          severity: warning
+          team: application
+          service: detection
+        annotations:
+          summary: "Low detection rate"
+          description: "Detection rate is {{ $value }} detections/second over 15 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/low-detection-rate"
+      
+      - alert: CyberSentinelHighFalsePositiveRate
+        expr: rate(false_positives_total[30m]) / rate(detections_total[30m]) > 0.1
+        for: 30m
+        labels:
+          severity: warning
+          team: application
+          service: detection
+        annotations:
+          summary: "High false positive rate"
+          description: "False positive rate is {{ $value | humanizePercentage }} over 30 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/application/high-false-positive-rate"
+      
+      # Response performance alerts
+      - alert: CyberSentinelSlowIncidentResponse
+        expr: histogram_quantile(0.95, rate(incident_response_duration_seconds_bucket[10m])) > 300
+        for: 10m
+        labels:
+          severity: warning
+          team: application
+          service: response
+        annotations:
+          summary: "Slow incident response"
+          description: "95th percentile incident response time is {{ $value }}s."
+          runbook_url: "https://runbooks.cybersentinel.com/application/slow-response"
+
+  # Database alert rules
+  database.yml: |
+    groups:
+    - name: database.rules
+      interval: 30s
+      rules:
+      
+      # Database connection alerts
+      - alert: CyberSentinelDatabaseConnectionFailed
+        expr: database_connection_failures_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: database
+        annotations:
+          summary: "Database connection failures detected"
+          description: "{{ $value }} database connection failures in the last minute."
+          runbook_url: "https://runbooks.cybersentinel.com/database/connection-failed"
+      
+      - alert: CyberSentinelDatabaseHighConnectionCount
+        expr: database_connections_active > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "High database connection count"
+          description: "Database has {{ $value }} active connections."
+          runbook_url: "https://runbooks.cybersentinel.com/database/high-connections"
+      
+      # Database query performance
+      - alert: CyberSentinelDatabaseSlowQueries
+        expr: rate(database_query_duration_seconds_sum[5m]) / rate(database_query_duration_seconds_count[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Database slow queries detected"
+          description: "Average query time is {{ $value }}s over 10 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/database/slow-queries"
+      
+      - alert: CyberSentinelDatabaseDeadlocks
+        expr: increase(database_deadlocks_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Database deadlocks detected"
+          description: "{{ $value }} deadlocks detected in the last 5 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/database/deadlocks"
+      
+      # Redis alerts
+      - alert: CyberSentinelRedisDown
+        expr: redis_up == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: database
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance {{ $labels.instance }} is down."
+          runbook_url: "https://runbooks.cybersentinel.com/database/redis-down"
+      
+      - alert: CyberSentinelRedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}."
+          runbook_url: "https://runbooks.cybersentinel.com/database/redis-memory"
+
+  # Security alert rules
+  security.yml: |
+    groups:
+    - name: security.rules
+      interval: 30s
+      rules:
+      
+      # Authentication alerts
+      - alert: CyberSentinelHighFailedLoginRate
+        expr: rate(authentication_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High failed login rate"
+          description: "Failed login rate is {{ $value }} attempts/second over 5 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/security/failed-logins"
+      
+      - alert: CyberSentinelSuspiciousUserActivity
+        expr: rate(suspicious_activity_total[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Suspicious user activity detected"
+          description: "Suspicious activity rate is {{ $value }} events/second."
+          runbook_url: "https://runbooks.cybersentinel.com/security/suspicious-activity"
+      
+      # Network security alerts
+      - alert: CyberSentinelUnauthorizedNetworkAccess
+        expr: unauthorized_network_connections_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Unauthorized network access detected"
+          description: "{{ $value }} unauthorized network connections detected."
+          runbook_url: "https://runbooks.cybersentinel.com/security/unauthorized-access"
+      
+      # Certificate alerts
+      - alert: CyberSentinelCertificateExpiringSoon
+        expr: (cert_expiry_timestamp - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Certificate expiring soon"
+          description: "Certificate {{ $labels.cert_name }} expires in {{ $value }} days."
+          runbook_url: "https://runbooks.cybersentinel.com/security/cert-expiry"
+      
+      - alert: CyberSentinelCertificateExpired
+        expr: cert_expiry_timestamp - time() < 0
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Certificate expired"
+          description: "Certificate {{ $labels.cert_name }} has expired."
+          runbook_url: "https://runbooks.cybersentinel.com/security/cert-expired"
+
+  # Dead man's switch
+  deadmansswitch.yml: |
+    groups:
+    - name: deadmansswitch.rules
+      interval: 1m
+      rules:
+      
+      # Dead man's switch - fires continuously when everything is working
+      - alert: DeadMansSwitch
+        expr: vector(1)
+        for: 0s
+        labels:
+          severity: none
+          team: infrastructure
+        annotations:
+          summary: "Dead man's switch"
+          description: "This is a dead man's switch meant to ensure that the entire alerting pipeline is functional."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/deadmansswitch"
+
+  # Monitoring system alerts
+  monitoring.yml: |
+    groups:
+    - name: monitoring.rules
+      interval: 30s
+      rules:
+      
+      # Prometheus alerts
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Prometheus is down"
+          description: "Prometheus has been down for more than 5 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/prometheus-down"
+      
+      - alert: PrometheusConfigurationReload
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Prometheus configuration reload failed"
+          description: "Prometheus configuration reload failed."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/prometheus-config"
+      
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Prometheus target down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 10 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/target-down"
+      
+      # Alertmanager alerts
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager has been down for more than 5 minutes."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/alertmanager-down"
+      
+      - alert: AlertmanagerConfigurationReload
+        expr: alertmanager_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Alertmanager configuration reload failed"
+          description: "Alertmanager configuration reload failed."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/alertmanager-config"
+      
+      - alert: AlertmanagerNotificationsFailing
+        expr: rate(alertmanager_notifications_failed_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Alertmanager notifications failing"
+          description: "Alertmanager is failing to send notifications at a rate of {{ $value }} failures/second."
+          runbook_url: "https://runbooks.cybersentinel.com/monitoring/alertmanager-notifications"

@@ -1,0 +1,242 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-playbooks
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder-playbooks
+data:
+  block_source_ip.yml: |
+    name: "Block Source IP"
+    description: "Block malicious IP address at firewall level"
+    version: "1.0.0"
+    risk_tier: "medium"
+    timeout_seconds: 300
+    
+    triggers:
+      - severity: ["high", "critical"]
+        attack_types: ["brute_force", "scanning", "lateral_movement"]
+        confidence_threshold: 0.8
+    
+    steps:
+      - name: "validate_ip"
+        action: "validate_ipv4"
+        parameters:
+          ip: "{{`{{ incident.source_ip }}`}}"
+      - name: "check_whitelist"
+        action: "check_ip_whitelist"
+        parameters:
+          ip: "{{`{{ incident.source_ip }}`}}"
+      - name: "block_firewall"
+        action: "aws_security_group_block"
+        parameters:
+          ip: "{{`{{ incident.source_ip }}`}}"
+          rule_description: "CyberSentinel auto-block {{`{{ incident.id }}`}}"
+
+  isolate_host.yml: |
+    name: "Isolate Compromised Host"
+    description: "Network isolation of potentially compromised host"
+    version: "1.0.0"
+    risk_tier: "high"
+    timeout_seconds: 600
+    
+    triggers:
+      - severity: ["high", "critical"]
+        attack_types: ["malware", "lateral_movement", "privilege_escalation"]
+        confidence_threshold: 0.85
+    
+    steps:
+      - name: "validate_host"
+        action: "validate_hostname"
+        parameters:
+          hostname: "{{`{{ incident.target_host }}`}}"
+      - name: "backup_network_config"
+        action: "backup_host_network"
+        parameters:
+          hostname: "{{`{{ incident.target_host }}`}}"
+      - name: "apply_isolation"
+        action: "aws_security_group_isolate"
+        parameters:
+          hostname: "{{`{{ incident.target_host }}`}}"
+          isolation_rule: "quarantine-{{`{{ incident.id }}`}}"
+
+  notify_stakeholders.yml: |
+    name: "Notify Stakeholders"
+    description: "Send incident notifications to relevant teams"
+    version: "1.0.0"
+    risk_tier: "low"
+    timeout_seconds: 120
+    
+    triggers:
+      - severity: ["medium", "high", "critical"]
+        confidence_threshold: 0.6
+    
+    steps:
+      - name: "slack_notification"
+        action: "send_slack_message"
+        parameters:
+          channel: "#security-alerts"
+          message: "🚨 Security Incident {{`{{ incident.id }}`}}: {{`{{ incident.title }}`}}"
+          severity: "{{`{{ incident.severity }}`}}"
+      - name: "email_notification"
+        action: "send_email"
+        parameters:
+          to: ["security-team@company.com"]
+          subject: "CyberSentinel Alert: {{`{{ incident.title }}`}}"
+          template: "incident_notification"
+
+  collect_forensic_evidence.yml: |
+    name: "Collect Forensic Evidence"
+    description: "Gather forensic evidence from affected systems"
+    version: "1.0.0"
+    risk_tier: "low"
+    timeout_seconds: 900
+    
+    triggers:
+      - severity: ["high", "critical"]
+        confidence_threshold: 0.7
+    
+    steps:
+      - name: "snapshot_disk"
+        action: "aws_ebs_snapshot"
+        parameters:
+          instance_id: "{{`{{ incident.instance_id }}`}}"
+          description: "Forensic snapshot for incident {{`{{ incident.id }}`}}"
+      - name: "collect_logs"
+        action: "collect_system_logs"
+        parameters:
+          hostname: "{{`{{ incident.target_host }}`}}"
+          time_range: "{{`{{ incident.timeframe }}`}}"
+      - name: "preserve_memory"
+        action: "memory_dump"
+        parameters:
+          hostname: "{{`{{ incident.target_host }}`}}"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-policies
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder-policies
+data:
+  response_authorization.rego: |
+    package cybersentinel.response
+    
+    import future.keywords.if
+    
+    default allow = false
+    
+    # Allow low-risk playbooks automatically
+    allow if {
+        input.risk_tier == "low"
+        input.confidence >= 0.6
+    }
+    
+    # Allow medium-risk playbooks for high-confidence incidents
+    allow if {
+        input.risk_tier == "medium"
+        input.confidence >= 0.8
+        input.severity in ["high", "critical"]
+    }
+    
+    # High-risk playbooks require explicit approval
+    allow if {
+        input.risk_tier == "high"
+        input.confidence >= 0.9
+        input.severity == "critical"
+        input.manual_approval == true
+    }
+    
+    # Block actions during business hours unless critical
+    allow if {
+        input.severity == "critical"
+    }
+    
+    deny_reason = "Low confidence score" if {
+        input.confidence < 0.6
+    }
+    
+    deny_reason = "High-risk action requires manual approval" if {
+        input.risk_tier == "high"
+        input.manual_approval != true
+    }
+    
+    deny_reason = "Insufficient severity for business hours" if {
+        input.business_hours == true
+        input.severity in ["low", "medium"]
+        input.risk_tier in ["medium", "high"]
+    }
+
+  playbook_validation.rego: |
+    package cybersentinel.playbook
+    
+    import future.keywords.if
+    
+    # Validate playbook structure
+    valid_playbook if {
+        input.name
+        input.description
+        input.version
+        input.risk_tier in ["low", "medium", "high", "critical"]
+        input.steps
+        count(input.steps) > 0
+    }
+    
+    # Check for required safety measures
+    has_safety_measures if {
+        some step in input.steps
+        step.action in ["validate_ipv4", "validate_hostname", "check_whitelist"]
+    }
+    
+    # Validate step parameters
+    valid_steps if {
+        every step in input.steps {
+            step.name
+            step.action
+        }
+    }
+    
+    # Overall validation result
+    allow if {
+        valid_playbook
+        has_safety_measures
+        valid_steps
+    }
+
+  incident_classification.rego: |
+    package cybersentinel.incident
+    
+    import future.keywords.if
+    
+    # Classify incident severity based on attack vectors and confidence
+    severity = "critical" if {
+        input.attack_types[_] in ["ransomware", "data_exfiltration", "privilege_escalation"]
+        input.confidence >= 0.9
+    }
+    
+    severity = "high" if {
+        input.attack_types[_] in ["lateral_movement", "credential_dumping", "malware"]
+        input.confidence >= 0.8
+    }
+    
+    severity = "medium" if {
+        input.attack_types[_] in ["brute_force", "scanning", "suspicious_process"]
+        input.confidence >= 0.7
+    }
+    
+    severity = "low" if {
+        input.confidence >= 0.6
+    }
+    
+    # Recommend response actions based on classification
+    response_required if {
+        severity in ["high", "critical"]
+    }
+    
+    automated_response_allowed if {
+        severity in ["medium", "high", "critical"]
+        input.confidence >= 0.8
+    }

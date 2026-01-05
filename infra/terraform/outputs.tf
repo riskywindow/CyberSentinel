@@ -111,11 +111,7 @@ output "redis_port" {
   value       = aws_elasticache_replication_group.redis.port
 }
 
-# Security Outputs
-output "cluster_security_group_id" {
-  description = "Cluster security group that was created by Amazon EKS for the cluster"
-  value       = module.eks.cluster_security_group_id
-}
+# Security Outputs (cluster_security_group_id already defined above)
 
 output "node_security_group_id" {
   description = "ID of the node shared security group"
@@ -174,4 +170,156 @@ output "app_config" {
     s3_artifacts_bucket = aws_s3_bucket.artifacts.bucket
   }
   sensitive = true
+}
+
+# ============================================================================
+# IRSA Role ARNs for Infrastructure Components
+# ============================================================================
+
+# AWS Load Balancer Controller IRSA Role ARN
+output "aws_load_balancer_controller_role_arn" {
+  description = "ARN of the IRSA role for AWS Load Balancer Controller"
+  value       = module.load_balancer_controller_irsa_role.iam_role_arn
+}
+
+# External DNS IRSA Role ARN
+output "external_dns_role_arn" {
+  description = "ARN of the IRSA role for External DNS"
+  value       = module.external_dns_irsa_role.iam_role_arn
+}
+
+# cert-manager IRSA Role ARN
+output "cert_manager_role_arn" {
+  description = "ARN of the IRSA role for cert-manager"
+  value       = module.cert_manager_irsa_role.iam_role_arn
+}
+
+# Velero IRSA Role ARN
+output "velero_role_arn" {
+  description = "ARN of the IRSA role for Velero backup"
+  value       = module.velero_irsa_role.iam_role_arn
+}
+
+# CloudWatch Agent IRSA Role ARN
+output "cloudwatch_agent_role_arn" {
+  description = "ARN of the IRSA role for CloudWatch agent"
+  value       = module.cloudwatch_agent_irsa_role.iam_role_arn
+}
+
+# External Secrets IRSA Role ARN
+output "external_secrets_role_arn" {
+  description = "ARN of the IRSA role for External Secrets"
+  value       = module.external_secrets_irsa_role.iam_role_arn
+}
+
+# ArgoCD IRSA Role ARN
+output "argocd_role_arn" {
+  description = "ARN of the IRSA role for ArgoCD"
+  value       = module.argocd_irsa_role.iam_role_arn
+}
+
+# Workload IRSA Role ARN
+output "workload_role_arn" {
+  description = "ARN of the IRSA role for application workloads"
+  value       = module.workload_irsa_role.iam_role_arn
+}
+
+# ============================================================================
+# Route53 and Certificate Outputs
+# ============================================================================
+
+# Route53 Hosted Zone ID
+output "route53_zone_id" {
+  description = "Route53 hosted zone ID"
+  value       = var.create_route53_zone ? aws_route53_zone.main[0].zone_id : ""
+}
+
+# ACM Certificate ARN
+output "acm_certificate_arn" {
+  description = "ACM certificate ARN"
+  value       = var.create_route53_zone ? aws_acm_certificate_validation.main[0].certificate_arn : ""
+}
+
+# Domain name
+output "domain_name" {
+  description = "Domain name for the environment"
+  value       = var.domain_name
+}
+
+# Environment-specific domain
+output "environment_domain" {
+  description = "Environment-specific domain name"
+  value = var.environment == "prod" ? var.domain_name : "${var.environment}.${var.domain_name}"
+}
+
+# ============================================================================
+# CloudWatch Outputs
+# ============================================================================
+
+# CloudWatch log group names
+output "cloudwatch_log_groups" {
+  description = "CloudWatch log groups for Container Insights"
+  value = {
+    application  = aws_cloudwatch_log_group.container_insights_application.name
+    host         = aws_cloudwatch_log_group.container_insights_host.name
+    dataplane    = aws_cloudwatch_log_group.container_insights_dataplane.name
+    performance  = aws_cloudwatch_log_group.container_insights_performance.name
+  }
+}
+
+# CloudWatch dashboard URLs
+output "cloudwatch_dashboards" {
+  description = "CloudWatch dashboard URLs"
+  value = {
+    container_insights = "https://console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.container_insights.dashboard_name}"
+    application = "https://console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.cybersentinel.dashboard_name}"
+  }
+}
+
+# CloudWatch Container Insights URL
+output "container_insights_url" {
+  description = "URL to CloudWatch Container Insights"
+  value = "https://console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#container-insights:infrastructure"
+}
+
+# KMS key for CloudWatch logs
+output "cloudwatch_logs_kms_key_arn" {
+  description = "ARN of the KMS key for CloudWatch logs encryption"
+  value = aws_kms_key.cloudwatch_logs.arn
+}
+
+# ============================================================================
+# AWS Account and Region Outputs
+# ============================================================================
+
+# AWS account ID
+output "aws_account_id" {
+  description = "AWS account ID"
+  value       = data.aws_caller_identity.current.account_id
+}
+
+# AWS region  
+output "aws_region" {
+  description = "AWS region"
+  value       = data.aws_region.current.name
+}
+
+# ============================================================================
+# Velero-Specific Outputs
+# ============================================================================
+
+# S3 backups bucket (alias for consistency)
+output "s3_backups_bucket" {
+  description = "Name of the S3 bucket for Velero backups"
+  value       = aws_s3_bucket.backups.bucket
+}
+
+# Velero backup URLs
+output "velero_backup_urls" {
+  description = "Useful URLs for Velero backup monitoring"
+  value = {
+    s3_bucket_url     = "https://s3.console.aws.amazon.com/s3/buckets/${aws_s3_bucket.backups.bucket}?region=${var.aws_region}"
+    cloudwatch_logs   = "https://console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#logs:"
+    iam_role          = "https://console.aws.amazon.com/iam/home#/roles/${module.velero_irsa_role.iam_role_name}"
+  }
 }

@@ -1,0 +1,440 @@
+# CyberSentinel Helm Chart Values - Staging Environment
+
+global:
+  imageRegistry: "ghcr.io"
+  imagePullSecrets: []
+  storageClass: "gp3"
+
+# Application configuration
+app:
+  name: cybersentinel
+  version: "1.0.0"
+  environment: "staging"
+
+# Service Account Configuration with IRSA
+serviceAccount:
+  create: true
+  automount: true
+  annotations:
+    # Will be populated by Terraform outputs
+    eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/cybersentinel-staging-workload-role"
+  name: ""
+
+# Secrets Configuration - External Secrets integration
+secrets:
+  # In staging, these will be managed by External Secrets Operator
+  externalSecrets: true
+  secretStore: "aws-secretsmanager"
+
+# API Service Configuration - Staging sizing (production-like)
+api:
+  enabled: true
+  replicaCount: 2  # Multiple replicas for staging testing
+  image:
+    repository: ghcr.io/cybersentinel/api
+    tag: "latest"  # Will be overridden with SHA in pipeline
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    annotations: {}
+  
+  resources:
+    limits:
+      cpu: 1000m     # Production-like sizing
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true   # Enable autoscaling in staging
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  env:
+    - name: ENVIRONMENT
+      value: "staging"
+    - name: LOG_LEVEL
+      value: "INFO"
+    - name: WORKERS
+      value: "4"
+
+# UI Service Configuration - Staging sizing
+ui:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ghcr.io/cybersentinel/ui
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    annotations: {}
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  env: []
+
+# Agent Services Configuration - Staging sizing
+agents:
+  scout:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: ghcr.io/cybersentinel/scout-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 65
+      targetMemoryUtilizationPercentage: 75
+    dedupThreshold: "0.8"
+    alertWindowHours: "1"
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  
+  analyst:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: ghcr.io/cybersentinel/analyst-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    confidenceThreshold: "0.7"
+    maxHypothesisEntities: "50"
+    sigmaValidation: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  
+  responder:
+    enabled: true
+    replicaCount: 1  # Single replica but with better resources
+    image:
+      repository: ghcr.io/cybersentinel/responder-agent
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    autoscaling:
+      enabled: false  # Keep single replica for critical service
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 75
+      targetMemoryUtilizationPercentage: 85
+    playbookTimeoutSeconds: 600
+    maxConcurrentPlaybooks: 5
+    dryRunMode: false  # Production-like behavior in staging
+    riskAssessment:
+      enabled: true
+      autoApproveLowRisk: true
+      requireApprovalHighRisk: true
+    audit:
+      enabled: true
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+# Red Team Simulator Configuration - Enabled in staging
+redteam:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/cybersentinel/redteam-simulator
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 1500m     # More resources for proper testing
+      memory: 3Gi
+    requests:
+      cpu: 750m
+      memory: 1.5Gi
+  simulationInterval: "300"  # Production-like frequency
+  campaignIntensity: "medium"
+  maxConcurrentCampaigns: "2"
+  telemetryRateLimit: "500"
+  adversaryProfiles:
+    enabled: true
+    profiles: ["apt1", "apt29", "lazarus"]  # Limited set for staging
+  mitreAttackCoverage: "standard"
+
+# Evaluation Harness Configuration - Full testing in staging
+evaluation:
+  enabled: true
+  deploymentType: "deployment"
+  replicaCount: 1
+  image:
+    repository: ghcr.io/cybersentinel/evaluation-harness
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  mode: "continuous"
+  maxConcurrentScenarios: "3"
+  performanceBaseline:
+    enabled: true
+
+# Ingress Configuration - Staging domain
+ingress:
+  enabled: true
+  className: "alb"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # Certificate managed by cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Will be populated with ACM certificate ARN via Terraform
+    alb.ingress.kubernetes.io/certificate-arn: ""
+  hosts:
+    - host: staging.cybersentinel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: cybersentinel-ui
+            port: 3000
+        - path: /api
+          pathType: Prefix
+          service:
+            name: cybersentinel-api
+            port: 8000
+  tls:
+    - secretName: cybersentinel-tls-staging
+      hosts:
+        - staging.cybersentinel.example.com
+
+# Persistent Storage Configuration - Staging sizing
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 20Gi  # Larger than dev
+  storageClass: "gp3"
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "gp3"
+  # Service-specific storage sizes
+  faissIndexSize: "5Gi"
+  redteamSize: "10Gi"
+  evaluationSize: "5Gi"
+  evaluationReportsSize: "15Gi"
+
+# Monitoring Configuration - Full monitoring in staging
+monitoring:
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      environment: staging
+    annotations: {}
+    interval: 15s  # More frequent scraping
+    scrapeTimeout: 10s
+    path: /metrics
+  tracing:
+    enabled: true
+    endpoint: "http://tempo:4318"
+    serviceName: "cybersentinel-staging"
+    samplingRatio: 0.3  # Higher than production for testing
+  metrics:
+    enabled: true
+    port: 9000
+
+# Pod Disruption Budget - Production-like
+podDisruptionBudget:
+  enabled: true
+  api:
+    minAvailable: "50%"
+  ui:
+    minAvailable: "50%"
+  scout:
+    minAvailable: "50%"
+  analyst:
+    minAvailable: "50%"  # Less conservative than production
+  responder:
+    minAvailable: 1
+  redteam:
+    minAvailable: 1
+  evaluation:
+    minAvailable: 1
+
+# Network Policies - Enabled for security testing
+networkPolicy:
+  enabled: true
+  ingress:
+    enabled: true
+  egress:
+    enabled: true
+
+# RBAC Configuration
+rbac:
+  enabled: true
+  clusterRole:
+    enabled: false  # Namespace-scoped in staging
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Pod Security Context
+podSecurityContext:
+  enabled: true
+  fsGroup: 1000
+
+# Resource Quotas - Production-like but smaller
+resourceQuota:
+  enabled: true
+  hard:
+    # CPU and Memory
+    requests.cpu: "5"
+    requests.memory: "10Gi"
+    limits.cpu: "10"
+    limits.memory: "20Gi"
+    # Storage
+    persistentvolumeclaims: "8"
+    requests.storage: "50Gi"
+    # Kubernetes Objects
+    pods: "30"
+    services: "15"
+    secrets: "15"
+    configmaps: "15"
+
+# Limit Ranges
+limitRange:
+  enabled: true
+  limits:
+    - default:
+        cpu: "500m"
+        memory: "1Gi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "256Mi"
+      max:
+        cpu: "2000m"
+        memory: "4Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      type: Container
+
+# External Dependencies - Staging endpoints
+clickhouse:
+  enabled: false
+  external:
+    host: "cybersentinel-staging-clickhouse.cluster-xyz.us-west-2.rds.amazonaws.com"
+    port: 8123
+    database: "cybersentinel_staging"
+
+neo4j:
+  enabled: false
+  external:
+    host: "cybersentinel-staging-neo4j.cluster-xyz.us-west-2.rds.amazonaws.com"
+    port: 7687
+    database: "neo4j"
+
+redis:
+  enabled: false
+  external:
+    host: "cybersentinel-staging-redis.cluster.cache.amazonaws.com"
+    port: 6379
+
+nats:
+  enabled: true
+  nats:
+    jetstream:
+      enabled: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# Feature Flags - Production-like
+features:
+  graphVisualization: true
+  realTimeAnalysis: true
+  automatedResponse: false  # Still disabled for safety in staging
+  threatIntelligence: true
+
+# External Secrets Configuration
+externalSecrets:
+  enabled: true
+  secretStore:
+    provider: aws
+    region: us-west-2
+    role: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/cybersentinel-staging-external-secrets-role"
+  apiSecretsPath: "cybersentinel/staging/api"
+  dbSecretsPath: "cybersentinel/staging/database"
+
+# Staging-specific settings
+global:
+  awsAccountId: ""  # Will be populated by Terraform
+  domain: "staging.cybersentinel.example.com"
+  environment: "staging"
+  region: "us-west-2"

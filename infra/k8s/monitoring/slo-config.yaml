@@ -1,0 +1,583 @@
+---
+# CyberSentinel SLO Configuration
+# Service Level Objectives and Indicators for production readiness
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cybersentinel-slo-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: slo-config
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+data:
+  # SLO Configuration in YAML format
+  slo-config.yaml: |
+    # CyberSentinel Service Level Objectives
+    # Following Google SRE best practices for SLO definitions
+    
+    slos:
+      # API Service SLOs
+      - name: cybersentinel-api-availability
+        service: cybersentinel-api
+        description: "API service availability and responsiveness"
+        objectives:
+          - name: availability
+            description: "API requests succeed (non-5xx responses)"
+            target: 99.9  # 99.9% availability target
+            window: 30d   # 30-day rolling window
+            sli:
+              ratio_query: |
+                sum(rate(http_requests_total{service="cybersentinel-api",code!~"5.."}[5m])) /
+                sum(rate(http_requests_total{service="cybersentinel-api"}[5m]))
+          
+          - name: latency
+            description: "API request latency P95 under 500ms"
+            target: 95    # 95% of requests under 500ms
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(http_request_duration_seconds_bucket{service="cybersentinel-api",le="0.5"}[5m])) /
+                sum(rate(http_request_duration_seconds_count{service="cybersentinel-api"}[5m]))
+      
+      # UI Service SLOs  
+      - name: cybersentinel-ui-availability
+        service: cybersentinel-ui
+        description: "UI service availability and performance"
+        objectives:
+          - name: availability
+            description: "UI requests succeed (non-5xx responses)"
+            target: 99.5  # 99.5% availability target
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(http_requests_total{service="cybersentinel-ui",code!~"5.."}[5m])) /
+                sum(rate(http_requests_total{service="cybersentinel-ui"}[5m]))
+          
+          - name: page_load_performance
+            description: "Page load time P90 under 3 seconds"
+            target: 90    # 90% of page loads under 3s
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(http_request_duration_seconds_bucket{service="cybersentinel-ui",le="3.0"}[5m])) /
+                sum(rate(http_request_duration_seconds_count{service="cybersentinel-ui"}[5m]))
+      
+      # Detection Engine SLOs
+      - name: cybersentinel-detection-reliability
+        service: cybersentinel-detection
+        description: "Threat detection engine reliability and accuracy"
+        objectives:
+          - name: processing_availability
+            description: "Detection requests processed successfully"
+            target: 99.95 # 99.95% processing success
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(detection_requests_total{status="success"}[5m])) /
+                sum(rate(detection_requests_total[5m]))
+          
+          - name: processing_latency
+            description: "Detection processing P99 under 5 seconds"
+            target: 99    # 99% under 5 seconds
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(detection_duration_seconds_bucket{le="5.0"}[5m])) /
+                sum(rate(detection_duration_seconds_count[5m]))
+          
+          - name: false_positive_rate
+            description: "False positive rate under 1%"
+            target: 99    # 99% of detections are not false positives
+            window: 7d    # Weekly window for accuracy metrics
+            sli:
+              ratio_query: |
+                (sum(rate(detection_results_total{result="true_positive"}[5m])) + 
+                 sum(rate(detection_results_total{result="true_negative"}[5m]))) /
+                sum(rate(detection_results_total[5m]))
+      
+      # Infrastructure SLOs
+      - name: cybersentinel-infrastructure-health
+        service: cybersentinel-infrastructure
+        description: "Core infrastructure availability and health"
+        objectives:
+          - name: pod_availability
+            description: "Application pods available and ready"
+            target: 99.9  # 99.9% pod availability
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(kube_pod_status_ready{namespace="cybersentinel",condition="true"}) /
+                sum(kube_pod_status_ready{namespace="cybersentinel"})
+          
+          - name: persistent_volume_health
+            description: "Persistent volumes available and healthy"
+            target: 99.99 # 99.99% storage availability
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(kube_persistentvolume_status_phase{namespace="cybersentinel",phase="Bound"}) /
+                sum(kube_persistentvolume_status_phase{namespace="cybersentinel"})
+      
+      # Database SLOs
+      - name: cybersentinel-database-reliability
+        service: cybersentinel-database
+        description: "Database availability and performance"
+        objectives:
+          - name: connection_availability
+            description: "Database connections succeed"
+            target: 99.95 # 99.95% connection success
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(db_connections_total{status="success"}[5m])) /
+                sum(rate(db_connections_total[5m]))
+          
+          - name: query_performance
+            description: "Database query P95 under 100ms"
+            target: 95    # 95% under 100ms
+            window: 30d
+            sli:
+              ratio_query: |
+                sum(rate(db_query_duration_seconds_bucket{le="0.1"}[5m])) /
+                sum(rate(db_query_duration_seconds_count[5m]))
+
+    # Error Budget Configuration
+    error_budgets:
+      # Define error budget policies for different SLO targets
+      - target: 99.99
+        monthly_budget: 0.01      # 0.01% error budget (4.32 minutes/month)
+        alert_thresholds:
+          - burn_rate: 14.4       # 2% budget consumed in 1 hour
+            window: 1h
+            severity: critical
+          - burn_rate: 6          # 5% budget consumed in 6 hours  
+            window: 6h
+            severity: critical
+          - burn_rate: 1          # 10% budget consumed in 3 days
+            window: 3d
+            severity: warning
+      
+      - target: 99.95
+        monthly_budget: 0.05      # 0.05% error budget (21.6 minutes/month)
+        alert_thresholds:
+          - burn_rate: 14.4
+            window: 1h
+            severity: critical
+          - burn_rate: 6
+            window: 6h
+            severity: critical
+          - burn_rate: 1
+            window: 3d
+            severity: warning
+      
+      - target: 99.9
+        monthly_budget: 0.1       # 0.1% error budget (43.2 minutes/month)
+        alert_thresholds:
+          - burn_rate: 14.4
+            window: 1h
+            severity: critical
+          - burn_rate: 6
+            window: 6h
+            severity: critical
+          - burn_rate: 1
+            window: 3d
+            severity: warning
+      
+      - target: 99.5
+        monthly_budget: 0.5       # 0.5% error budget (3.6 hours/month)
+        alert_thresholds:
+          - burn_rate: 14.4
+            window: 1h
+            severity: critical
+          - burn_rate: 6
+            window: 6h
+            severity: warning
+          - burn_rate: 1
+            window: 3d
+            severity: info
+
+    # SLI Recording Rules Configuration
+    recording_rules:
+      # API Service SLI Recording Rules
+      - name: cybersentinel_api_sli_availability
+        query: |
+          sum(rate(http_requests_total{service="cybersentinel-api",code!~"5.."}[5m])) /
+          sum(rate(http_requests_total{service="cybersentinel-api"}[5m]))
+        labels:
+          service: cybersentinel-api
+          sli_type: availability
+      
+      - name: cybersentinel_api_sli_latency
+        query: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{service="cybersentinel-api"}[5m])) by (le)
+          )
+        labels:
+          service: cybersentinel-api
+          sli_type: latency
+      
+      # UI Service SLI Recording Rules
+      - name: cybersentinel_ui_sli_availability
+        query: |
+          sum(rate(http_requests_total{service="cybersentinel-ui",code!~"5.."}[5m])) /
+          sum(rate(http_requests_total{service="cybersentinel-ui"}[5m]))
+        labels:
+          service: cybersentinel-ui
+          sli_type: availability
+      
+      # Detection Engine SLI Recording Rules
+      - name: cybersentinel_detection_sli_reliability
+        query: |
+          sum(rate(detection_requests_total{status="success"}[5m])) /
+          sum(rate(detection_requests_total[5m]))
+        labels:
+          service: cybersentinel-detection
+          sli_type: reliability
+      
+      - name: cybersentinel_detection_sli_accuracy
+        query: |
+          (sum(rate(detection_results_total{result="true_positive"}[5m])) + 
+           sum(rate(detection_results_total{result="true_negative"}[5m]))) /
+          sum(rate(detection_results_total[5m]))
+        labels:
+          service: cybersentinel-detection
+          sli_type: accuracy
+      
+      # Infrastructure SLI Recording Rules
+      - name: cybersentinel_infrastructure_sli_pod_health
+        query: |
+          sum(kube_pod_status_ready{namespace="cybersentinel",condition="true"}) /
+          sum(kube_pod_status_ready{namespace="cybersentinel"})
+        labels:
+          service: cybersentinel-infrastructure
+          sli_type: pod_health
+      
+      # Database SLI Recording Rules
+      - name: cybersentinel_database_sli_availability
+        query: |
+          sum(rate(db_connections_total{status="success"}[5m])) /
+          sum(rate(db_connections_total[5m]))
+        labels:
+          service: cybersentinel-database
+          sli_type: availability
+
+    # Alerting Configuration
+    alerting:
+      # Global alerting settings
+      global:
+        notification_channels:
+          - slack_critical: "#alerts-critical"
+          - slack_warning: "#alerts-warning"  
+          - pagerduty: "cybersentinel-production"
+          - email: "sre-team@cybersentinel.com"
+      
+      # Alert routing rules
+      routing:
+        - match:
+            severity: critical
+            service: cybersentinel-api
+          receivers: 
+            - slack_critical
+            - pagerduty
+            - email
+        - match:
+            severity: critical
+            service: cybersentinel-detection
+          receivers:
+            - slack_critical
+            - pagerduty
+            - email
+        - match:
+            severity: warning
+          receivers:
+            - slack_warning
+            - email
+        - match:
+            severity: info
+          receivers:
+            - slack_warning
+
+---
+# SLO Recording Rules for Prometheus
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slo-recording-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: slo-recording-rules
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+data:
+  slo-recording-rules.yml: |
+    groups:
+    # CyberSentinel SLI Recording Rules
+    # These rules pre-compute SLI metrics for efficient SLO evaluation
+    
+    - name: cybersentinel.sli.rules
+      interval: 30s
+      rules:
+      
+      # API Service SLI Rules
+      - record: cybersentinel:api:availability_5m
+        expr: |
+          sum(rate(http_requests_total{service="cybersentinel-api",code!~"5.."}[5m])) /
+          sum(rate(http_requests_total{service="cybersentinel-api"}[5m]))
+        labels:
+          service: cybersentinel-api
+          sli_type: availability
+      
+      - record: cybersentinel:api:latency_p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{service="cybersentinel-api"}[5m])) by (le)
+          )
+        labels:
+          service: cybersentinel-api
+          sli_type: latency
+      
+      - record: cybersentinel:api:latency_sli_5m
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{service="cybersentinel-api",le="0.5"}[5m])) /
+          sum(rate(http_request_duration_seconds_count{service="cybersentinel-api"}[5m]))
+        labels:
+          service: cybersentinel-api
+          sli_type: latency_sli
+      
+      # UI Service SLI Rules
+      - record: cybersentinel:ui:availability_5m
+        expr: |
+          sum(rate(http_requests_total{service="cybersentinel-ui",code!~"5.."}[5m])) /
+          sum(rate(http_requests_total{service="cybersentinel-ui"}[5m]))
+        labels:
+          service: cybersentinel-ui
+          sli_type: availability
+      
+      - record: cybersentinel:ui:performance_sli_5m
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{service="cybersentinel-ui",le="3.0"}[5m])) /
+          sum(rate(http_request_duration_seconds_count{service="cybersentinel-ui"}[5m]))
+        labels:
+          service: cybersentinel-ui
+          sli_type: performance
+      
+      # Detection Engine SLI Rules
+      - record: cybersentinel:detection:reliability_5m
+        expr: |
+          sum(rate(detection_requests_total{status="success"}[5m])) /
+          sum(rate(detection_requests_total[5m]))
+        labels:
+          service: cybersentinel-detection
+          sli_type: reliability
+      
+      - record: cybersentinel:detection:latency_sli_5m
+        expr: |
+          sum(rate(detection_duration_seconds_bucket{le="5.0"}[5m])) /
+          sum(rate(detection_duration_seconds_count[5m]))
+        labels:
+          service: cybersentinel-detection
+          sli_type: latency
+      
+      - record: cybersentinel:detection:accuracy_5m
+        expr: |
+          (sum(rate(detection_results_total{result="true_positive"}[5m])) + 
+           sum(rate(detection_results_total{result="true_negative"}[5m]))) /
+          sum(rate(detection_results_total[5m]))
+        labels:
+          service: cybersentinel-detection
+          sli_type: accuracy
+      
+      # Infrastructure SLI Rules
+      - record: cybersentinel:infrastructure:pod_availability_5m
+        expr: |
+          sum(kube_pod_status_ready{namespace="cybersentinel",condition="true"}) /
+          sum(kube_pod_status_ready{namespace="cybersentinel"})
+        labels:
+          service: cybersentinel-infrastructure
+          sli_type: pod_availability
+      
+      - record: cybersentinel:infrastructure:pv_health_5m
+        expr: |
+          sum(kube_persistentvolume_status_phase{namespace="cybersentinel",phase="Bound"}) /
+          sum(kube_persistentvolume_status_phase{namespace="cybersentinel"})
+        labels:
+          service: cybersentinel-infrastructure
+          sli_type: storage_health
+      
+      # Database SLI Rules
+      - record: cybersentinel:database:availability_5m
+        expr: |
+          sum(rate(db_connections_total{status="success"}[5m])) /
+          sum(rate(db_connections_total[5m]))
+        labels:
+          service: cybersentinel-database
+          sli_type: availability
+      
+      - record: cybersentinel:database:performance_sli_5m
+        expr: |
+          sum(rate(db_query_duration_seconds_bucket{le="0.1"}[5m])) /
+          sum(rate(db_query_duration_seconds_count[5m]))
+        labels:
+          service: cybersentinel-database
+          sli_type: performance
+
+    # SLO Compliance Rules
+    # These rules calculate SLO compliance over different time windows
+    
+    - name: cybersentinel.slo.rules
+      interval: 2m
+      rules:
+      
+      # API SLO Compliance Rules
+      - record: cybersentinel:slo:api_availability_30d
+        expr: |
+          avg_over_time(cybersentinel:api:availability_5m[30d])
+        labels:
+          service: cybersentinel-api
+          slo_type: availability
+          window: 30d
+          target: "99.9"
+      
+      - record: cybersentinel:slo:api_latency_30d
+        expr: |
+          avg_over_time(cybersentinel:api:latency_sli_5m[30d])
+        labels:
+          service: cybersentinel-api
+          slo_type: latency
+          window: 30d
+          target: "95"
+      
+      # UI SLO Compliance Rules
+      - record: cybersentinel:slo:ui_availability_30d
+        expr: |
+          avg_over_time(cybersentinel:ui:availability_5m[30d])
+        labels:
+          service: cybersentinel-ui
+          slo_type: availability
+          window: 30d
+          target: "99.5"
+      
+      - record: cybersentinel:slo:ui_performance_30d
+        expr: |
+          avg_over_time(cybersentinel:ui:performance_sli_5m[30d])
+        labels:
+          service: cybersentinel-ui
+          slo_type: performance
+          window: 30d
+          target: "90"
+      
+      # Detection Engine SLO Compliance Rules
+      - record: cybersentinel:slo:detection_reliability_30d
+        expr: |
+          avg_over_time(cybersentinel:detection:reliability_5m[30d])
+        labels:
+          service: cybersentinel-detection
+          slo_type: reliability
+          window: 30d
+          target: "99.95"
+      
+      - record: cybersentinel:slo:detection_latency_30d
+        expr: |
+          avg_over_time(cybersentinel:detection:latency_sli_5m[30d])
+        labels:
+          service: cybersentinel-detection
+          slo_type: latency
+          window: 30d
+          target: "99"
+      
+      - record: cybersentinel:slo:detection_accuracy_7d
+        expr: |
+          avg_over_time(cybersentinel:detection:accuracy_5m[7d])
+        labels:
+          service: cybersentinel-detection
+          slo_type: accuracy
+          window: 7d
+          target: "99"
+
+    # Error Budget Rules
+    # These rules track error budget consumption and burn rates
+    
+    - name: cybersentinel.error_budget.rules
+      interval: 1m
+      rules:
+      
+      # API Error Budget Rules
+      - record: cybersentinel:error_budget:api_availability_burn_rate_1h
+        expr: |
+          (1 - cybersentinel:api:availability_5m) / (1 - 0.999) * 24 * 30
+        labels:
+          service: cybersentinel-api
+          slo_type: availability
+          window: 1h
+          target: "99.9"
+      
+      - record: cybersentinel:error_budget:api_availability_burn_rate_6h
+        expr: |
+          (1 - avg_over_time(cybersentinel:api:availability_5m[6h])) / (1 - 0.999) * 24 * 30
+        labels:
+          service: cybersentinel-api
+          slo_type: availability
+          window: 6h
+          target: "99.9"
+      
+      - record: cybersentinel:error_budget:api_availability_burn_rate_3d
+        expr: |
+          (1 - avg_over_time(cybersentinel:api:availability_5m[3d])) / (1 - 0.999) * 24 * 30
+        labels:
+          service: cybersentinel-api
+          slo_type: availability
+          window: 3d
+          target: "99.9"
+      
+      # Detection Engine Error Budget Rules
+      - record: cybersentinel:error_budget:detection_reliability_burn_rate_1h
+        expr: |
+          (1 - cybersentinel:detection:reliability_5m) / (1 - 0.9995) * 24 * 30
+        labels:
+          service: cybersentinel-detection
+          slo_type: reliability
+          window: 1h
+          target: "99.95"
+      
+      - record: cybersentinel:error_budget:detection_reliability_burn_rate_6h
+        expr: |
+          (1 - avg_over_time(cybersentinel:detection:reliability_5m[6h])) / (1 - 0.9995) * 24 * 30
+        labels:
+          service: cybersentinel-detection
+          slo_type: reliability
+          window: 6h
+          target: "99.95"
+
+    # SLO Breach Detection Rules
+    # These rules detect when SLOs are at risk or have been breached
+    
+    - name: cybersentinel.slo_breach.rules
+      interval: 1m
+      rules:
+      
+      # SLO Target vs Actual Comparison
+      - record: cybersentinel:slo_breach:api_availability_risk
+        expr: |
+          (cybersentinel:slo:api_availability_30d < 0.999) * 1
+        labels:
+          service: cybersentinel-api
+          slo_type: availability
+          risk_level: breach
+      
+      - record: cybersentinel:slo_breach:detection_reliability_risk
+        expr: |
+          (cybersentinel:slo:detection_reliability_30d < 0.9995) * 1
+        labels:
+          service: cybersentinel-detection
+          slo_type: reliability
+          risk_level: breach
+      
+      # Error Budget Exhaustion Risk
+      - record: cybersentinel:slo_breach:error_budget_exhaustion_risk
+        expr: |
+          (cybersentinel:error_budget:api_availability_burn_rate_1h > 14.4) * 1 or
+          (cybersentinel:error_budget:detection_reliability_burn_rate_1h > 14.4) * 1
+        labels:
+          risk_level: critical
+          alert_type: error_budget_burn

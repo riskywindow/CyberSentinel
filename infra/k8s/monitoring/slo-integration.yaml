@@ -1,0 +1,460 @@
+---
+# SLO Integration with Existing Prometheus/Grafana Stack
+# This file contains patches and configurations to integrate SLO monitoring
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-slo-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-slo-rules
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+data:
+  # Update Prometheus configuration to include SLO rules
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'cybersentinel'
+        environment: 'dev'
+
+    rule_files:
+      - "cybersentinel_rules.yml"
+      - "slo-recording-rules.yml"  # Add SLO recording rules
+      - "slo-alerts.yml"           # Add SLO alerting rules
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+        - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: default;kubernetes;https
+
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+        - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics
+
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role: pod
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+
+      # CyberSentinel Application Metrics
+      - job_name: 'cybersentinel-api'
+        kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - cybersentinel
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          action: keep
+          regex: cybersentinel-api
+        - source_labels: [__meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: metrics
+        - source_labels: [__meta_kubernetes_service_name]
+          target_label: service
+        - target_label: __metrics_path__
+          replacement: /metrics
+
+      - job_name: 'cybersentinel-ui'
+        kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - cybersentinel
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          action: keep
+          regex: cybersentinel-ui
+        - source_labels: [__meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: metrics
+        - source_labels: [__meta_kubernetes_service_name]
+          target_label: service
+        - target_label: __metrics_path__
+          replacement: /metrics
+
+      - job_name: 'cybersentinel-detection'
+        kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - cybersentinel
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          action: keep
+          regex: cybersentinel-detection
+        - source_labels: [__meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: metrics
+        - source_labels: [__meta_kubernetes_service_name]
+          target_label: service
+        - target_label: __metrics_path__
+          replacement: /metrics
+
+      # Database metrics (if exposed)
+      - job_name: 'cybersentinel-database'
+        kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - cybersentinel
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          action: keep
+          regex: postgresql
+        - source_labels: [__meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: metrics
+        - source_labels: [__meta_kubernetes_service_name]
+          target_label: service
+          replacement: cybersentinel-database
+
+    alerting:
+      alertmanagers:
+      - kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - monitoring
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_name]
+          action: keep
+          regex: alertmanager
+        - source_labels: [__meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: web
+
+---
+# Grafana Dashboard ConfigMaps Integration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-slo-datasource
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-slo-datasource
+    app.kubernetes.io/component: monitoring
+    grafana_datasource: "true"
+data:
+  slo-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus-SLO
+      type: prometheus
+      access: proxy
+      url: http://prometheus.monitoring.svc.cluster.local:9090
+      isDefault: false
+      version: 1
+      editable: true
+      jsonData:
+        httpMethod: GET
+        timeInterval: "30s"
+        queryTimeout: "60s"
+        exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+        customQueryParameters: "step=30"
+
+---
+# Grafana Dashboard Provisioning for SLO
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-slo-dashboard-provider
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-slo-dashboard-provider
+    app.kubernetes.io/component: monitoring
+    grafana_dashboard_provider: "true"
+data:
+  slo-dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'SLO Dashboards'
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 30
+      options:
+        path: /var/lib/grafana/dashboards/slo
+        foldersFromFilesStructure: true
+
+---
+# ServiceMonitor for CyberSentinel Services (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cybersentinel-services
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cybersentinel-services
+    app.kubernetes.io/component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: cybersentinel
+  namespaceSelector:
+    matchNames:
+    - cybersentinel
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    scheme: http
+
+---
+# PrometheusRule for SLO Rules (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cybersentinel-slo-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: cybersentinel-slo-rules
+    app.kubernetes.io/component: monitoring
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: cybersentinel.sli.rules
+    interval: 30s
+    rules:
+    # Import SLI recording rules from our ConfigMap
+    - record: cybersentinel:api:availability_5m
+      expr: |
+        sum(rate(http_requests_total{service="cybersentinel-api",code!~"5.."}[5m])) /
+        sum(rate(http_requests_total{service="cybersentinel-api"}[5m]))
+      labels:
+        service: cybersentinel-api
+        sli_type: availability
+    
+    - record: cybersentinel:detection:reliability_5m
+      expr: |
+        sum(rate(detection_requests_total{status="success"}[5m])) /
+        sum(rate(detection_requests_total[5m]))
+      labels:
+        service: cybersentinel-detection
+        sli_type: reliability
+    
+    - record: cybersentinel:ui:availability_5m
+      expr: |
+        sum(rate(http_requests_total{service="cybersentinel-ui",code!~"5.."}[5m])) /
+        sum(rate(http_requests_total{service="cybersentinel-ui"}[5m]))
+      labels:
+        service: cybersentinel-ui
+        sli_type: availability
+
+  - name: cybersentinel.slo.alerts
+    interval: 30s
+    rules:
+    # Critical SLO burn rate alerts
+    - alert: CyberSentinelAPIAvailabilityCriticalBurn
+      expr: |
+        (1 - cybersentinel:api:availability_5m) / (1 - 0.999) * 24 * 30 > 14.4
+      for: 2m
+      labels:
+        severity: critical
+        service: cybersentinel-api
+        team: sre
+        alert_type: slo_burn_rate
+      annotations:
+        summary: "API availability SLO error budget burning too fast"
+        description: "API availability error budget is burning at {{ $value | humanize }}x the normal rate"
+    
+    - alert: CyberSentinelDetectionReliabilityCriticalBurn
+      expr: |
+        (1 - cybersentinel:detection:reliability_5m) / (1 - 0.9995) * 24 * 30 > 14.4
+      for: 2m
+      labels:
+        severity: critical
+        service: cybersentinel-detection
+        team: security
+        alert_type: slo_burn_rate
+      annotations:
+        summary: "Detection engine reliability SLO error budget burning too fast"
+        description: "Detection engine reliability error budget is burning at {{ $value | humanize }}x the normal rate"
+
+---
+# Alertmanager Configuration Integration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-slo-config-patch
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager-slo-config
+    app.kubernetes.io/component: monitoring
+type: Opaque
+stringData:
+  alertmanager-slo-routes.yml: |
+    # Additional routing rules for SLO alerts
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'default-receiver'
+      routes:
+      # SLO Critical alerts - immediate escalation
+      - match:
+          alert_type: slo_burn_rate
+          severity: critical
+        receiver: slo-critical
+        group_wait: 0s
+        group_interval: 1m
+        repeat_interval: 5m
+      
+      # SLO Breach alerts
+      - match:
+          alert_type: slo_breach
+        receiver: slo-breach
+        group_wait: 5s
+        repeat_interval: 1h
+      
+      # Error budget alerts
+      - match:
+          alert_type: error_budget_low
+        receiver: error-budget
+        repeat_interval: 4h
+
+    receivers:
+    - name: 'default-receiver'
+      slack_configs:
+      - api_url: '{{ .SlackURL }}'
+        channel: '#alerts-general'
+        
+    - name: 'slo-critical'
+      slack_configs:
+      - api_url: '{{ .SlackURL }}'
+        channel: '#alerts-critical'
+        title: 'SLO Critical Burn Rate Alert'
+        text: |
+          *Service*: {{ .GroupLabels.service }}
+          *Alert*: {{ .GroupLabels.alertname }}
+          *Summary*: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description*: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+        actions:
+        - type: button
+          text: 'View Dashboard'
+          url: 'https://grafana.cybersentinel.com/d/slo-overview/slo-overview'
+        - type: button
+          text: 'Runbook'
+          url: 'https://runbooks.cybersentinel.com/slo/'
+      pagerduty_configs:
+      - routing_key: '{{ .PagerDutyKey }}'
+        description: "SLO Critical Burn: {{ .GroupLabels.service }}"
+        severity: critical
+    
+    - name: 'slo-breach'
+      slack_configs:
+      - api_url: '{{ .SlackURL }}'
+        channel: '#alerts-warning'
+        title: 'SLO Breach Alert'
+        
+    - name: 'error-budget'
+      slack_configs:
+      - api_url: '{{ .SlackURL }}'
+        channel: '#alerts-info'
+        title: 'Error Budget Alert'
+
+---
+# SLO Metrics Validation Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: slo-metrics-validator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: slo-metrics-validator
+    app.kubernetes.io/component: monitoring
+spec:
+  template:
+    spec:
+      containers:
+      - name: validator
+        image: curlimages/curl:latest
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          echo "Validating SLO metrics availability..."
+          
+          # Check if Prometheus is accessible
+          if curl -f http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=up > /dev/null 2>&1; then
+            echo "✓ Prometheus is accessible"
+          else
+            echo "✗ Prometheus is not accessible"
+            exit 1
+          fi
+          
+          # Check for application metrics
+          services="cybersentinel-api cybersentinel-ui cybersentinel-detection"
+          for service in $services; do
+            metric_query="up{job=\"$service\"}"
+            if curl -f "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=$metric_query" | grep -q '"result":\['; then
+              echo "✓ $service metrics are available"
+            else
+              echo "⚠ $service metrics may not be available yet"
+            fi
+          done
+          
+          # Check for SLI recording rules
+          sli_rules="cybersentinel:api:availability_5m cybersentinel:detection:reliability_5m"
+          for rule in $sli_rules; do
+            if curl -f "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=$rule" | grep -q '"result":\['; then
+              echo "✓ SLI rule $rule is working"
+            else
+              echo "⚠ SLI rule $rule may not be working yet"
+            fi
+          done
+          
+          echo "SLO metrics validation completed"
+      restartPolicy: Never
+  backoffLimit: 3

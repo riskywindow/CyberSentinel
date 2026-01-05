@@ -1,0 +1,124 @@
+{{- if .Values.agents.scout.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-scout
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scout
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "cybersentinel.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: scout
+{{- end }}
+
+{{- if .Values.agents.analyst.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-analyst
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyst
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8002
+      targetPort: 8002
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "cybersentinel.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: analyst
+{{- end }}
+
+{{- if .Values.agents.responder.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-responder
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8003
+      targetPort: 8003
+      protocol: TCP
+      name: http
+    - port: 9003
+      targetPort: 9003
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "cybersentinel.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: responder
+{{- end }}
+
+{{- if .Values.redteam.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-redteam
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redteam
+  {{- with .Values.redteam.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.redteam.service.type }}
+  ports:
+    - port: {{ .Values.redteam.service.port }}
+      targetPort: {{ .Values.redteam.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: 9004
+      targetPort: 9004
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "cybersentinel.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redteam
+{{- end }}
+
+{{- if .Values.evaluation.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-evaluation
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+  {{- with .Values.evaluation.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.evaluation.service.type }}
+  ports:
+    - port: {{ .Values.evaluation.service.port }}
+      targetPort: {{ .Values.evaluation.service.targetPort }}
+      protocol: TCP
+      name: http
+    - port: 9005
+      targetPort: 9005
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "cybersentinel.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: evaluation
+{{- end }}

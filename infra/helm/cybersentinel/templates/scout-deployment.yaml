@@ -1,0 +1,173 @@
+{{- if .Values.agents.scout.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-scout
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scout
+spec:
+  replicas: {{ .Values.agents.scout.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cybersentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scout
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "cybersentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scout
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cybersentinel.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-message-bus
+          image: busybox:1.35
+          command: ['sh', '-c', 'until nc -z {{ include "cybersentinel.natsHost" . }} {{ .Values.nats.port | default "4222" }}; do echo waiting for NATS; sleep 2; done;']
+        - name: wait-for-vector-db
+          image: busybox:1.35
+          command: ['sh', '-c', 'echo "Vector DB (FAISS) is file-based, ready"']
+      containers:
+        - name: scout
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.agents.scout.image.repository }}:{{ .Values.agents.scout.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.agents.scout.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+            - name: metrics
+              containerPort: 9001
+              protocol: TCP
+          env:
+            {{- include "cybersentinel.commonEnv" . | nindent 12 }}
+            - name: AGENT_TYPE
+              value: "scout"
+            - name: AGENT_PORT
+              value: "8001"
+            - name: METRICS_PORT
+              value: "9001"
+            - name: LOG_LEVEL
+              value: {{ .Values.app.logLevel | default "INFO" | quote }}
+            # Message bus configuration
+            - name: NATS_URL
+              value: "nats://{{ include "cybersentinel.natsHost" . }}:{{ .Values.nats.port | default "4222" }}"
+            # Vector database for RAG
+            - name: VECTOR_DB_PATH
+              value: "/app/data/vector_db"
+            - name: FAISS_INDEX_PATH
+              value: "/app/data/faiss_index"
+            # Scout-specific configuration
+            - name: ALERT_DEDUP_THRESHOLD
+              value: {{ .Values.agents.scout.dedupThreshold | default "0.8" | quote }}
+            - name: ALERT_WINDOW_HOURS
+              value: {{ .Values.agents.scout.alertWindowHours | default "1" | quote }}
+            - name: ATTACK_FRAMEWORK_PATH
+              value: "/app/data/attack_framework.json"
+            # Redis for caching alert hashes
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-config
+                  key: redis_host
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-config
+                  key: redis_port
+            - name: REDIS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cybersentinel.fullname" . }}-db-secrets
+                  key: REDIS_AUTH_TOKEN
+            {{- if .Values.monitoring.tracing.enabled }}
+            # OpenTelemetry Tracing Configuration
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.monitoring.tracing.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: "{{ .Values.monitoring.tracing.serviceName }}-scout"
+            - name: OTEL_SERVICE_VERSION
+              value: {{ .Chart.AppVersion | quote }}
+            - name: OTEL_TRACES_SAMPLER
+              value: "traceidratio"
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ .Values.monitoring.tracing.samplingRatio | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.name={{ .Values.monitoring.tracing.serviceName }}-scout,service.version={{ .Chart.AppVersion }},deployment.environment={{ .Values.app.environment }},component=agent"
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agents.scout.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+            - name: attack-framework
+              mountPath: /app/data/attack_framework.json
+              subPath: attack_framework.json
+            - name: vector-db
+              mountPath: /app/data/vector_db
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "cybersentinel.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: logs
+          emptyDir: {}
+        - name: attack-framework
+          configMap:
+            name: {{ include "cybersentinel.fullname" . }}-config
+            items:
+            - key: attack_framework
+              path: attack_framework.json
+        - name: vector-db
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 500Mi
+      {{- with .Values.agents.scout.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agents.scout.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agents.scout.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

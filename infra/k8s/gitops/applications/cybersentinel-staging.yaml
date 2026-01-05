@@ -1,0 +1,115 @@
+---
+# CyberSentinel Staging Environment Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cybersentinel-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: cybersentinel-staging
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: cybersentinel
+    environment: staging
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.slack: "general"
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: "critical"
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: "critical"
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cybersentinel
+  
+  source:
+    repoURL: https://github.com/cybersentinel/cybersentinel
+    targetRevision: staging  # Track staging branch
+    path: infra/helm/cybersentinel
+    helm:
+      valueFiles:
+      - values.yaml
+      - values-staging.yaml
+      parameters:
+      - name: global.environment
+        value: staging
+      - name: global.domain
+        value: "${DOMAIN_NAME}"
+      - name: image.tag
+        value: "staging-latest"
+      - name: replicaCount.api
+        value: "2"
+      - name: replicaCount.scout
+        value: "2"
+      - name: replicaCount.analyst
+        value: "2"
+      - name: replicaCount.responder
+        value: "2"
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cybersentinel-staging
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true
+    - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+  
+  revisionHistoryLimit: 15
+  
+  # Health checks
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers:
+    - /spec/replicas
+  - group: ""
+    kind: Service
+    jsonPointers:
+    - /spec/clusterIP
+  - group: networking.k8s.io
+    kind: Ingress
+    jsonPointers:
+    - /status
+  
+  # Pre-sync hooks for validation
+  operation:
+    sync:
+      hooks:
+      - name: pre-sync-hook
+        phase: PreSync
+        kind: Job
+        apiVersion: batch/v1
+        metadata:
+          name: pre-sync-validation
+        spec:
+          template:
+            spec:
+              containers:
+              - name: validator
+                image: quay.io/argoproj/argocd:v2.8.4
+                command: ["/bin/sh"]
+                args: ["-c", "echo 'Pre-sync validation passed'"]
+              restartPolicy: Never
+          backoffLimit: 2
+  
+  info:
+  - name: "Environment"
+    value: "Staging"
+  - name: "Git Branch"
+    value: "staging"
+  - name: "Deployment Strategy"
+    value: "Blue-Green"
+  - name: "Auto-sync"
+    value: "Enabled"

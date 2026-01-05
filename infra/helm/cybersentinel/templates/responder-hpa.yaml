@@ -1,0 +1,48 @@
+{{- if and .Values.agents.responder.enabled .Values.agents.responder.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-responder
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: responder
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "cybersentinel.fullname" . }}-responder
+  minReplicas: {{ .Values.agents.responder.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.agents.responder.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.agents.responder.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.agents.responder.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.agents.responder.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.agents.responder.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 900  # Very conservative scale-down for critical service
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 300
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 120
+      selectPolicy: Max
+{{- end }}

@@ -1,0 +1,773 @@
+---
+# CyberSentinel SLO Grafana Dashboards
+# Comprehensive dashboards for SLO monitoring and error budget tracking
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slo-dashboards
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: slo-dashboards
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: cybersentinel
+    grafana_dashboard: "true"
+data:
+  # SLO Overview Dashboard
+  slo-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel - SLO Overview",
+        "tags": ["slo", "overview", "cybersentinel"],
+        "timezone": "UTC",
+        "refresh": "30s",
+        "time": {
+          "from": "now-30d",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "SLO Compliance Status",
+            "type": "stat",
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "cybersentinel:slo:api_availability_30d",
+                "legendFormat": "API Availability (30d)",
+                "refId": "A"
+              },
+              {
+                "expr": "cybersentinel:slo:ui_availability_30d",
+                "legendFormat": "UI Availability (30d)",
+                "refId": "B"
+              },
+              {
+                "expr": "cybersentinel:slo:detection_reliability_30d",
+                "legendFormat": "Detection Reliability (30d)",
+                "refId": "C"
+              },
+              {
+                "expr": "cybersentinel:slo:detection_accuracy_7d",
+                "legendFormat": "Detection Accuracy (7d)",
+                "refId": "D"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0.99,
+                "max": 1.0,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 0.995},
+                    {"color": "green", "value": 0.999}
+                  ]
+                }
+              }
+            },
+            "options": {
+              "colorMode": "background",
+              "orientation": "horizontal",
+              "reduceOptions": {
+                "values": false,
+                "calcs": ["lastNotNull"]
+              }
+            }
+          },
+          {
+            "id": 2,
+            "title": "Error Budget Consumption",
+            "type": "bargauge",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+            "targets": [
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:api:availability_5m[30d])) / (1 - 0.999) * 100",
+                "legendFormat": "API Availability",
+                "refId": "A"
+              },
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:ui:availability_5m[30d])) / (1 - 0.995) * 100",
+                "legendFormat": "UI Availability",
+                "refId": "B"
+              },
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:detection:reliability_5m[30d])) / (1 - 0.9995) * 100",
+                "legendFormat": "Detection Reliability",
+                "refId": "C"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": 0},
+                    {"color": "yellow", "value": 50},
+                    {"color": "red", "value": 80}
+                  ]
+                }
+              }
+            },
+            "options": {
+              "displayMode": "gradient",
+              "orientation": "horizontal",
+              "showUnfilled": true
+            }
+          },
+          {
+            "id": 3,
+            "title": "Current Error Burn Rate",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+            "targets": [
+              {
+                "expr": "cybersentinel:error_budget:api_availability_burn_rate_1h",
+                "legendFormat": "API Availability (1h burn rate)",
+                "refId": "A"
+              },
+              {
+                "expr": "cybersentinel:error_budget:detection_reliability_burn_rate_1h",
+                "legendFormat": "Detection Reliability (1h burn rate)",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "min": 0,
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": 0},
+                    {"color": "yellow", "value": 6},
+                    {"color": "red", "value": 14.4}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 4,
+            "title": "SLO Trends (30 days)",
+            "type": "timeseries",
+            "gridPos": {"h": 12, "w": 24, "x": 0, "y": 16},
+            "targets": [
+              {
+                "expr": "cybersentinel:api:availability_5m",
+                "legendFormat": "API Availability",
+                "refId": "A"
+              },
+              {
+                "expr": "cybersentinel:ui:availability_5m",
+                "legendFormat": "UI Availability",
+                "refId": "B"
+              },
+              {
+                "expr": "cybersentinel:detection:reliability_5m",
+                "legendFormat": "Detection Reliability",
+                "refId": "C"
+              },
+              {
+                "expr": "cybersentinel:detection:accuracy_5m",
+                "legendFormat": "Detection Accuracy",
+                "refId": "D"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0.98,
+                "max": 1.0
+              }
+            }
+          }
+        ]
+      }
+    }
+
+  # API SLO Dashboard
+  slo-api.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel - API SLO Dashboard",
+        "tags": ["slo", "api", "cybersentinel"],
+        "timezone": "UTC",
+        "refresh": "30s",
+        "time": {
+          "from": "now-24h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "API Availability SLO",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "cybersentinel:api:availability_5m",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "decimals": 3,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 0.999},
+                    {"color": "green", "value": 0.9995}
+                  ]
+                }
+              }
+            },
+            "options": {
+              "colorMode": "background",
+              "textMode": "value_and_name"
+            }
+          },
+          {
+            "id": 2,
+            "title": "API Latency P95",
+            "type": "stat", 
+            "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+            "targets": [
+              {
+                "expr": "cybersentinel:api:latency_p95_5m",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "s",
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": 0},
+                    {"color": "yellow", "value": 0.5},
+                    {"color": "red", "value": 1.0}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 3,
+            "title": "Error Budget Remaining",
+            "type": "gauge",
+            "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+            "targets": [
+              {
+                "expr": "100 - ((1 - avg_over_time(cybersentinel:api:availability_5m[30d])) / (1 - 0.999) * 100)",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 20},
+                    {"color": "green", "value": 50}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 4,
+            "title": "Request Rate",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total{service=\"cybersentinel-api\"}[5m]))",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps"
+              }
+            }
+          },
+          {
+            "id": 5,
+            "title": "API Availability Over Time",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+            "targets": [
+              {
+                "expr": "cybersentinel:api:availability_5m",
+                "legendFormat": "Current Availability",
+                "refId": "A"
+              },
+              {
+                "expr": "0.999",
+                "legendFormat": "SLO Target (99.9%)",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0.995,
+                "max": 1.0
+              }
+            }
+          },
+          {
+            "id": 6,
+            "title": "Error Budget Burn Rate",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+            "targets": [
+              {
+                "expr": "cybersentinel:error_budget:api_availability_burn_rate_1h",
+                "legendFormat": "1h Burn Rate",
+                "refId": "A"
+              },
+              {
+                "expr": "cybersentinel:error_budget:api_availability_burn_rate_6h",
+                "legendFormat": "6h Burn Rate", 
+                "refId": "B"
+              },
+              {
+                "expr": "14.4",
+                "legendFormat": "Critical Threshold (14.4x)",
+                "refId": "C"
+              },
+              {
+                "expr": "6",
+                "legendFormat": "Warning Threshold (6x)",
+                "refId": "D"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "min": 0
+              }
+            }
+          },
+          {
+            "id": 7,
+            "title": "HTTP Status Code Distribution",
+            "type": "piechart",
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 14},
+            "targets": [
+              {
+                "expr": "sum(rate(http_requests_total{service=\"cybersentinel-api\"}[5m])) by (code)",
+                "legendFormat": "{{code}}",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 8,
+            "title": "API Latency Distribution",
+            "type": "heatmap",
+            "gridPos": {"h": 8, "w": 16, "x": 8, "y": 14},
+            "targets": [
+              {
+                "expr": "sum(rate(http_request_duration_seconds_bucket{service=\"cybersentinel-api\"}[5m])) by (le)",
+                "format": "heatmap",
+                "refId": "A"
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+  # Detection Engine SLO Dashboard  
+  slo-detection.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel - Detection Engine SLO Dashboard",
+        "tags": ["slo", "detection", "security", "cybersentinel"],
+        "timezone": "UTC", 
+        "refresh": "30s",
+        "time": {
+          "from": "now-24h",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Detection Reliability SLO",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "cybersentinel:detection:reliability_5m",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "decimals": 4,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 0.9995},
+                    {"color": "green", "value": 0.9998}
+                  ]
+                }
+              }
+            },
+            "options": {
+              "colorMode": "background",
+              "textMode": "value_and_name"
+            }
+          },
+          {
+            "id": 2,
+            "title": "Detection Accuracy",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+            "targets": [
+              {
+                "expr": "cybersentinel:detection:accuracy_5m",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "decimals": 3,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 0.99},
+                    {"color": "green", "value": 0.995}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 3,
+            "title": "Processing Latency P99",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.99, sum(rate(detection_duration_seconds_bucket[5m])) by (le))",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "s",
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": 0},
+                    {"color": "yellow", "value": 5},
+                    {"color": "red", "value": 10}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 4,
+            "title": "Detection Rate",
+            "type": "stat",
+            "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+            "targets": [
+              {
+                "expr": "sum(rate(detection_requests_total[5m]))",
+                "refId": "A"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "ops",
+                "decimals": 2
+              }
+            }
+          },
+          {
+            "id": 5,
+            "title": "Detection Reliability Trend",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+            "targets": [
+              {
+                "expr": "cybersentinel:detection:reliability_5m",
+                "legendFormat": "Current Reliability",
+                "refId": "A"
+              },
+              {
+                "expr": "0.9995",
+                "legendFormat": "SLO Target (99.95%)",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0.999,
+                "max": 1.0
+              }
+            }
+          },
+          {
+            "id": 6,
+            "title": "Detection Accuracy Trend", 
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+            "targets": [
+              {
+                "expr": "cybersentinel:detection:accuracy_5m",
+                "legendFormat": "Current Accuracy",
+                "refId": "A"
+              },
+              {
+                "expr": "0.99",
+                "legendFormat": "SLO Target (99%)",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "min": 0.98,
+                "max": 1.0
+              }
+            }
+          },
+          {
+            "id": 7,
+            "title": "Detection Results Breakdown",
+            "type": "piechart",
+            "gridPos": {"h": 8, "w": 8, "x": 0, "y": 14},
+            "targets": [
+              {
+                "expr": "sum(rate(detection_results_total[5m])) by (result)",
+                "legendFormat": "{{result}}",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 8,
+            "title": "False Positive Rate Trend",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 8, "x": 8, "y": 14},
+            "targets": [
+              {
+                "expr": "sum(rate(detection_results_total{result=\"false_positive\"}[5m])) / sum(rate(detection_results_total[5m]))",
+                "legendFormat": "False Positive Rate",
+                "refId": "A"
+              },
+              {
+                "expr": "0.01",
+                "legendFormat": "Target (<1%)",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percentunit",
+                "max": 0.05
+              }
+            }
+          },
+          {
+            "id": 9,
+            "title": "Processing Latency Heatmap",
+            "type": "heatmap", 
+            "gridPos": {"h": 8, "w": 8, "x": 16, "y": 14},
+            "targets": [
+              {
+                "expr": "sum(rate(detection_duration_seconds_bucket[5m])) by (le)",
+                "format": "heatmap",
+                "refId": "A"
+              }
+            ]
+          }
+        ]
+      }
+    }
+
+  # Error Budget Dashboard
+  slo-error-budget.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CyberSentinel - Error Budget Dashboard",
+        "tags": ["slo", "error-budget", "cybersentinel"],
+        "timezone": "UTC",
+        "refresh": "1m", 
+        "time": {
+          "from": "now-7d",
+          "to": "now"
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Error Budget Status",
+            "type": "table",
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+            "targets": [
+              {
+                "expr": "cybersentinel:slo:api_availability_30d",
+                "legendFormat": "API Availability",
+                "refId": "A",
+                "format": "table"
+              },
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:api:availability_5m[30d])) / (1 - 0.999) * 100",
+                "legendFormat": "API Budget Used",
+                "refId": "B",
+                "format": "table"
+              },
+              {
+                "expr": "cybersentinel:slo:detection_reliability_30d", 
+                "legendFormat": "Detection Reliability",
+                "refId": "C",
+                "format": "table"
+              },
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:detection:reliability_5m[30d])) / (1 - 0.9995) * 100",
+                "legendFormat": "Detection Budget Used",
+                "refId": "D",
+                "format": "table"
+              }
+            ],
+            "transformations": [
+              {
+                "id": "merge"
+              },
+              {
+                "id": "organize",
+                "options": {
+                  "excludeByName": {"Time": true},
+                  "renameByName": {
+                    "Value #A": "Current SLO",
+                    "Value #B": "Budget Used (%)",
+                    "Value #C": "Current SLO",
+                    "Value #D": "Budget Used (%)"
+                  }
+                }
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "displayMode": "color-background"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": 0},
+                    {"color": "yellow", "value": 50},
+                    {"color": "red", "value": 80}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 2,
+            "title": "Error Budget Burn Rate (24h)",
+            "type": "timeseries",
+            "gridPos": {"h": 10, "w": 12, "x": 0, "y": 8},
+            "targets": [
+              {
+                "expr": "cybersentinel:error_budget:api_availability_burn_rate_1h",
+                "legendFormat": "API Availability (1h)",
+                "refId": "A"
+              },
+              {
+                "expr": "cybersentinel:error_budget:api_availability_burn_rate_6h",
+                "legendFormat": "API Availability (6h)",
+                "refId": "B"
+              },
+              {
+                "expr": "cybersentinel:error_budget:detection_reliability_burn_rate_1h",
+                "legendFormat": "Detection Reliability (1h)",
+                "refId": "C"
+              },
+              {
+                "expr": "cybersentinel:error_budget:detection_reliability_burn_rate_6h",
+                "legendFormat": "Detection Reliability (6h)",
+                "refId": "D"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short"
+              }
+            }
+          },
+          {
+            "id": 3,
+            "title": "Time to Error Budget Exhaustion",
+            "type": "stat",
+            "gridPos": {"h": 10, "w": 12, "x": 12, "y": 8},
+            "targets": [
+              {
+                "expr": "720 / cybersentinel:error_budget:api_availability_burn_rate_1h",
+                "legendFormat": "API (hours)",
+                "refId": "A"
+              },
+              {
+                "expr": "720 / cybersentinel:error_budget:detection_reliability_burn_rate_1h", 
+                "legendFormat": "Detection (hours)",
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "h",
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 24},
+                    {"color": "green", "value": 168}
+                  ]
+                }
+              }
+            },
+            "options": {
+              "colorMode": "background"
+            }
+          },
+          {
+            "id": 4,
+            "title": "Error Budget History (30 days)",
+            "type": "timeseries",
+            "gridPos": {"h": 10, "w": 24, "x": 0, "y": 18},
+            "targets": [
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:api:availability_5m[30d:1h])) / (1 - 0.999) * 100",
+                "legendFormat": "API Error Budget Used (%)",
+                "refId": "A"
+              },
+              {
+                "expr": "(1 - avg_over_time(cybersentinel:detection:reliability_5m[30d:1h])) / (1 - 0.9995) * 100",
+                "legendFormat": "Detection Error Budget Used (%)", 
+                "refId": "B"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "max": 100
+              }
+            }
+          }
+        ]
+      }
+    }

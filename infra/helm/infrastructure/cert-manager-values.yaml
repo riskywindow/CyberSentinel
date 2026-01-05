@@ -1,0 +1,271 @@
+# cert-manager Helm Values
+# This configures cert-manager for automatic TLS certificate management
+
+# Global configuration
+global:
+  # AWS account ID - will be populated by Terraform
+  awsAccountId: ""
+  # AWS region
+  region: "us-west-2"
+  # Environment name (dev, staging, prod)
+  environment: ""
+  # Project name
+  projectName: "cybersentinel"
+  # Domain name for certificates
+  domain: ""
+
+# cert-manager configuration
+cert-manager:
+  # Image configuration
+  image:
+    repository: quay.io/jetstack/cert-manager-controller
+    tag: v1.13.2
+    pullPolicy: IfNotPresent
+
+  # Webhook image
+  webhook:
+    image:
+      repository: quay.io/jetstack/cert-manager-webhook
+      tag: v1.13.2
+      pullPolicy: IfNotPresent
+
+  # CA Injector image
+  cainjector:
+    image:
+      repository: quay.io/jetstack/cert-manager-cainjector
+      tag: v1.13.2
+      pullPolicy: IfNotPresent
+
+  # Replica configuration
+  replicaCount: 2
+
+  # Service Account configuration with IRSA
+  serviceAccount:
+    create: true
+    name: cert-manager
+    annotations:
+      # IRSA role ARN - populated by Terraform
+      eks.amazonaws.com/role-arn: "arn:aws:iam::{{ .Values.global.awsAccountId }}:role/{{ .Values.global.projectName }}-{{ .Values.global.environment }}-cert-manager"
+
+  # Resource configuration
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Webhook resources
+  webhook:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    # Webhook security context
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+  # CA Injector resources
+  cainjector:
+    resources:
+      limits:
+        cpu: 300m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    # CA Injector security context
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+  # Node selector for system nodes
+  nodeSelector:
+    role: "system"
+
+  # Tolerations for system nodes
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Pod security context
+  podSecurityContext:
+    fsGroup: 1000
+
+  # Feature flags
+  featureGates: ""
+  
+  # Logging configuration
+  logLevel: 2  # Info level
+
+  # Metrics configuration
+  prometheus:
+    enabled: true
+    servicemonitor:
+      enabled: true
+      namespace: monitoring
+      labels:
+        environment: "{{ .Values.global.environment }}"
+
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Additional labels
+  extraLabels:
+    app.kubernetes.io/component: "certificate-manager"
+    app.kubernetes.io/part-of: "cybersentinel"
+    environment: "{{ .Values.global.environment }}"
+
+  # Liveness and readiness probes
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 15
+    failureThreshold: 8
+    successThreshold: 1
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+# ClusterIssuers configuration
+clusterIssuers:
+  letsencrypt:
+    # Production Let's Encrypt issuer
+    prod:
+      enabled: true
+      name: letsencrypt-prod
+      server: https://acme-v02.api.letsencrypt.org/directory
+      email: "admin@{{ .Values.global.domain }}"
+      # DNS01 challenge using Route53
+      solvers:
+        - dns01:
+            route53:
+              region: "{{ .Values.global.region }}"
+              # Service account with IRSA will provide credentials
+          selector:
+            dnsZones:
+              - "{{ .Values.global.domain }}"
+    
+    # Staging Let's Encrypt issuer for testing
+    staging:
+      enabled: true
+      name: letsencrypt-staging
+      server: https://acme-staging-v02.api.letsencrypt.org/directory
+      email: "admin@{{ .Values.global.domain }}"
+      # DNS01 challenge using Route53
+      solvers:
+        - dns01:
+            route53:
+              region: "{{ .Values.global.region }}"
+          selector:
+            dnsZones:
+              - "{{ .Values.global.domain }}"
+
+# Certificate configuration
+certificates:
+  # Wildcard certificate for the domain
+  wildcard:
+    enabled: true
+    name: "{{ .Values.global.projectName }}-wildcard-tls"
+    secretName: "{{ .Values.global.projectName }}-wildcard-tls"
+    issuerRef:
+      name: letsencrypt-prod
+      kind: ClusterIssuer
+    dnsNames:
+      - "{{ .Values.global.domain }}"
+      - "*.{{ .Values.global.domain }}"
+    # Certificate renewal configuration
+    renewBefore: 720h  # 30 days
+    duration: 2160h    # 90 days
+
+# Environment-specific overrides
+environments:
+  dev:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    logLevel: 4  # Debug level
+    clusterIssuers:
+      letsencrypt:
+        prod:
+          enabled: false  # Use staging in dev
+        staging:
+          enabled: true
+    certificates:
+      wildcard:
+        issuerRef:
+          name: letsencrypt-staging
+    
+  staging:
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 300m
+        memory: 384Mi
+      requests:
+        cpu: 75m
+        memory: 96Mi
+    logLevel: 2  # Info level
+    clusterIssuers:
+      letsencrypt:
+        prod:
+          enabled: true
+        staging:
+          enabled: true
+    
+  prod:
+    replicaCount: 3
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    logLevel: 2  # Info level
+    # Enhanced monitoring in production
+    prometheus:
+      enabled: true
+      servicemonitor:
+        enabled: true
+        interval: 15s

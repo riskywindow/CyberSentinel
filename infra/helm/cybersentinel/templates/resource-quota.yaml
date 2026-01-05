@@ -1,0 +1,40 @@
+{{- if .Values.resourceQuota.enabled }}
+---
+# Resource Quota for CyberSentinel Namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "cybersentinel.fullname" . }}-quota
+  labels:
+    {{- include "cybersentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: security
+spec:
+  hard:
+    # CPU limits and requests
+    requests.cpu: {{ index .Values.resourceQuota.hard "requests.cpu" | quote }}
+    limits.cpu: {{ index .Values.resourceQuota.hard "limits.cpu" | quote }}
+    
+    # Memory limits and requests
+    requests.memory: {{ index .Values.resourceQuota.hard "requests.memory" | quote }}
+    limits.memory: {{ index .Values.resourceQuota.hard "limits.memory" | quote }}
+    
+    # Storage
+    persistentvolumeclaims: {{ .Values.resourceQuota.hard.persistentvolumeclaims | quote }}
+    requests.storage: {{ index .Values.resourceQuota.hard "requests.storage" | default "100Gi" | quote }}
+    
+    # Kubernetes objects
+    pods: {{ .Values.resourceQuota.hard.pods | default "50" | quote }}
+    services: {{ .Values.resourceQuota.hard.services | default "20" | quote }}
+    secrets: {{ .Values.resourceQuota.hard.secrets | default "20" | quote }}
+    configmaps: {{ .Values.resourceQuota.hard.configmaps | default "20" | quote }}
+    
+    # High-priority workloads
+    count/deployments.apps: {{ .Values.resourceQuota.hard.deployments | default "20" | quote }}
+    count/statefulsets.apps: {{ .Values.resourceQuota.hard.statefulsets | default "5" | quote }}
+    count/jobs.batch: {{ .Values.resourceQuota.hard.jobs | default "10" | quote }}
+    
+    # Security-related objects
+    count/networkpolicies.networking.k8s.io: {{ .Values.resourceQuota.hard.networkpolicies | default "20" | quote }}
+    count/poddisruptionbudgets.policy: {{ .Values.resourceQuota.hard.poddisruptionbudgets | default "10" | quote }}
+
+{{- end }}
