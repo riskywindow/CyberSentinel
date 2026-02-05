@@ -161,3 +161,37 @@ test-analyst: ## Test analyst agent
 
 test-responder: ## Test responder agent
 	python -m pytest tests/agents/test_responder.py -v
+
+# RL adversary training targets
+rl-clean: ## Clean RL outputs
+	rm -rf eval/rl/*
+	mkdir -p eval/rl
+
+rl-train-pg: ## Train RL adversary with Policy Gradient
+	PYTHONPATH=. python rl/train_adversary.py --algo pg --seed $${SEED:-42} --episodes 200 --steps-per-episode 12
+
+rl-train-ppo: ## Train RL adversary with PPO
+	PYTHONPATH=. python rl/train_adversary.py --algo ppo --seed $${SEED:-42} --episodes 200 --steps-per-episode 12
+
+rl-eval: ## Evaluate trained RL adversary
+	PYTHONPATH=. python rl/eval_adversary.py --seed $${SEED:-42} --compare-random
+
+rl-plot: ## Plot RL learning curves
+	PYTHONPATH=. python rl/plot_rl.py
+
+rl-smoke: ## Run full RL smoke test (PG, 50 episodes, stub detector)
+	$(MAKE) rl-clean
+	PYTHONPATH=. python rl/train_adversary.py --algo pg --seed $${SEED:-42} --episodes 50 --steps-per-episode 12
+	PYTHONPATH=. python rl/eval_adversary.py --seed $${SEED:-42}
+	PYTHONPATH=. python rl/plot_rl.py
+	@echo "RL smoke test complete! Check eval/rl/ for outputs."
+
+rl-smoke-ppo: ## Run PPO smoke test (200 episodes)
+	$(MAKE) rl-clean
+	PYTHONPATH=. python rl/train_adversary.py --algo ppo --seed $${SEED:-42} --episodes 200 --steps-per-episode 12
+	PYTHONPATH=. python rl/eval_adversary.py --seed $${SEED:-42}
+	PYTHONPATH=. python rl/plot_rl.py
+	@echo "RL PPO smoke test complete! Check eval/rl/ for outputs."
+
+test-rl: ## Run RL unit tests
+	python -m pytest tests/rl/ -v

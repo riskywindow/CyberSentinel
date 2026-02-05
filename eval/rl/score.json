@@ -1,0 +1,13 @@
+{
+  "seed": 42,
+  "episodes": 20,
+  "deterministic": false,
+  "trained_policy": {
+    "mean_reward": 5.570000000000001,
+    "std_reward": 4.294310189075773,
+    "success_rate": 0.3,
+    "detection_rate": 0.0,
+    "mean_steps": 11.3
+  },
+  "timestamp": "2026-02-04T16:02:08.175372"
+}
