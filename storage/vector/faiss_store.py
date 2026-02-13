@@ -6,6 +6,8 @@ import json
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 
+from storage.vector.base import VectorStore
+
 try:
     import faiss
     import numpy as np
@@ -15,7 +17,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-class FAISSStore:
+class FAISSStore(VectorStore):
     """FAISS-based vector store with metadata."""
     
     def __init__(self, dimension: int = 768, index_path: Optional[str] = None):
@@ -169,6 +171,43 @@ class FAISSStore:
         
         return results
     
+    def delete_by_doc_ids(self, doc_ids: set) -> int:
+        """Delete all vectors whose metadata 'doc_id' is in *doc_ids*.
+
+        Since IndexFlatIP does not support in-place removal, this rebuilds the
+        index from the remaining vectors.  Returns the number of removed entries.
+        """
+        if self.index is None or not doc_ids:
+            return 0
+
+        keep_indices = [
+            i for i, m in enumerate(self.metadata) if m.get("doc_id") not in doc_ids
+        ]
+        removed = len(self.metadata) - len(keep_indices)
+        if removed == 0:
+            return 0
+
+        # Reconstruct vectors for kept entries
+        kept_vectors = np.vstack([
+            self.index.reconstruct(int(i)).reshape(1, -1) for i in keep_indices
+        ]).astype(np.float32) if keep_indices else np.empty((0, self.dimension), dtype=np.float32)
+
+        kept_metadata = [self.metadata[i] for i in keep_indices]
+
+        # Rebuild index
+        self.index = faiss.IndexFlatIP(self.dimension)
+        if len(kept_vectors) > 0:
+            self.index.add(kept_vectors)
+
+        # Re-id metadata
+        for new_id, meta in enumerate(kept_metadata):
+            meta["id"] = new_id
+        self.metadata = kept_metadata
+        self._next_id = len(kept_metadata)
+
+        logger.info(f"Deleted {removed} vectors for {len(doc_ids)} doc_ids, {len(kept_metadata)} remain")
+        return removed
+
     def get_stats(self) -> Dict[str, Any]:
         """Get index statistics."""
         if self.index is None:

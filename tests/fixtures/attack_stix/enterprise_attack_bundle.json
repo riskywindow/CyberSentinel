@@ -1,0 +1,563 @@
+{
+    "type": "bundle",
+    "id": "bundle--0e576880-f70a-4e93-81c5-4124a0ee3c04",
+    "spec_version": "2.0",
+    "objects": [
+        {
+            "type": "identity",
+            "id": "identity--c78cb6e5-0c4b-4611-8297-d1b8b55e40b5",
+            "name": "The MITRE Corporation",
+            "identity_class": "organization",
+            "created": "2017-06-01T00:00:00.000Z",
+            "modified": "2017-06-01T00:00:00.000Z"
+        },
+        {
+            "type": "x-mitre-tactic",
+            "id": "x-mitre-tactic--ffd5bcee-6e16-4dd2-8eca-7b3beedf33ca",
+            "name": "Initial Access",
+            "description": "The adversary is trying to get into your network.",
+            "created": "2018-10-17T00:14:20.652Z",
+            "modified": "2019-07-19T17:43:41.967Z",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "TA0001",
+                    "url": "https://attack.mitre.org/tactics/TA0001"
+                }
+            ],
+            "x_mitre_shortname": "initial-access"
+        },
+        {
+            "type": "x-mitre-tactic",
+            "id": "x-mitre-tactic--4ca45d45-df4d-4613-8980-bac22d278fa5",
+            "name": "Execution",
+            "description": "The adversary is trying to run malicious code.",
+            "created": "2018-10-17T00:14:20.652Z",
+            "modified": "2019-07-19T17:43:41.967Z",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "TA0002",
+                    "url": "https://attack.mitre.org/tactics/TA0002"
+                }
+            ],
+            "x_mitre_shortname": "execution"
+        },
+        {
+            "type": "x-mitre-tactic",
+            "id": "x-mitre-tactic--78b23412-0651-46d7-a540-170a1ce8bd5a",
+            "name": "Persistence",
+            "description": "The adversary is trying to maintain their foothold.",
+            "created": "2018-10-17T00:14:20.652Z",
+            "modified": "2019-07-19T17:43:41.967Z",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "TA0003",
+                    "url": "https://attack.mitre.org/tactics/TA0003"
+                }
+            ],
+            "x_mitre_shortname": "persistence"
+        },
+        {
+            "type": "x-mitre-tactic",
+            "id": "x-mitre-tactic--5e29b093-294e-49e9-a803-dab3d73b77dd",
+            "name": "Defense Evasion",
+            "description": "The adversary is trying to avoid being detected.",
+            "created": "2018-10-17T00:14:20.652Z",
+            "modified": "2019-07-19T17:43:41.967Z",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "TA0005",
+                    "url": "https://attack.mitre.org/tactics/TA0005"
+                }
+            ],
+            "x_mitre_shortname": "defense-evasion"
+        },
+        {
+            "type": "x-mitre-tactic",
+            "id": "x-mitre-tactic--d108ce10-2419-4cf9-a774-46161d6c6cfe",
+            "name": "Lateral Movement",
+            "description": "The adversary is trying to move through your environment.",
+            "created": "2018-10-17T00:14:20.652Z",
+            "modified": "2019-07-19T17:43:41.967Z",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "TA0008",
+                    "url": "https://attack.mitre.org/tactics/TA0008"
+                }
+            ],
+            "x_mitre_shortname": "lateral-movement"
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--b17a1a56-e99c-403c-8948-561df0cffe81",
+            "created": "2017-05-31T21:31:25.060Z",
+            "modified": "2023-04-12T23:55:39.274Z",
+            "name": "Valid Accounts",
+            "description": "Adversaries may obtain and abuse credentials of existing accounts as a means of gaining Initial Access, Persistence, Privilege Escalation, or Defense Evasion. Compromised credentials may be used to bypass access controls placed on various resources on systems within the network and may even be used for persistent access to remote systems and externally available services, such as VPNs, Outlook Web Access, network devices, and remote desktop.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "defense-evasion"},
+                {"kill_chain_name": "mitre-attack", "phase_name": "persistence"},
+                {"kill_chain_name": "mitre-attack", "phase_name": "initial-access"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1078",
+                    "external_id": "T1078"
+                }
+            ],
+            "x_mitre_platforms": ["Windows", "Azure AD", "Office 365", "SaaS", "IaaS", "Linux", "macOS", "Google Workspace", "Containers", "Network"],
+            "x_mitre_data_sources": ["Logon Session: Logon Session Creation", "User Account: User Account Authentication"],
+            "x_mitre_detection": "Configure robust, consistent account activity audit policies across the enterprise and with externally accessible services.",
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.6",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--54a649ff-439a-41a4-9856-8d144a2551ba",
+            "created": "2017-05-31T21:31:22.767Z",
+            "modified": "2023-03-30T21:01:44.875Z",
+            "name": "Remote Services",
+            "description": "Adversaries may use Valid Accounts to log into a service that accepts remote connections, such as telnet, SSH, and VNC. The adversary may then perform actions as the logged-on user.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "lateral-movement"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1021",
+                    "external_id": "T1021"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS", "Windows"],
+            "x_mitre_data_sources": ["Logon Session: Logon Session Creation", "Network Traffic: Network Connection Creation"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "1.3",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--10d51417-ee35-4589-b1ff-b6df1c334deb",
+            "created": "2020-02-11T18:39:59.959Z",
+            "modified": "2023-04-07T17:04:17.876Z",
+            "name": "Remote Services: SSH",
+            "description": "Adversaries may use Valid Accounts to log into remote machines using Secure Shell (SSH). The adversary may then perform actions as the logged-on user.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "lateral-movement"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1021/004",
+                    "external_id": "T1021.004"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS"],
+            "x_mitre_data_sources": ["Logon Session: Logon Session Creation", "Network Traffic: Network Connection Creation", "Process: Process Creation"],
+            "x_mitre_is_subtechnique": true,
+            "x_mitre_version": "1.1",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--1996eef1-ced3-4d7f-bf94-33298cabbf72",
+            "created": "2017-05-31T21:30:44.720Z",
+            "modified": "2023-04-20T18:16:42.274Z",
+            "name": "OS Credential Dumping",
+            "description": "Adversaries may attempt to dump credentials to obtain account login and credential material, normally in the form of a hash or a clear text password, from the operating system and software. Credentials can then be used to perform Lateral Movement and access restricted information.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1003",
+                    "external_id": "T1003"
+                }
+            ],
+            "x_mitre_platforms": ["Windows", "Linux", "macOS"],
+            "x_mitre_data_sources": ["Process: OS API Execution", "Process: Process Creation", "Command: Command Execution", "File: File Access", "Active Directory: Active Directory Object Access", "Windows Registry: Windows Registry Key Access"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.2",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--970a3432-3237-47ad-bcca-7d8cbb217736",
+            "created": "2017-05-31T21:31:18.867Z",
+            "modified": "2023-03-30T21:01:37.175Z",
+            "name": "Exploit Public-Facing Application",
+            "description": "Adversaries may attempt to exploit a weakness in an Internet-facing host or resource using software, data, or commands in order to cause unintended or unanticipated behavior. The weakness in the system can be a bug, a glitch, or a design vulnerability.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "initial-access"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1190",
+                    "external_id": "T1190"
+                }
+            ],
+            "x_mitre_platforms": ["Windows", "Linux", "macOS", "Containers", "Network"],
+            "x_mitre_data_sources": ["Application Log: Application Log Content", "Network Traffic: Network Traffic Content"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.4",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--d456de47-a16f-4e46-8980-e67478a12dcb",
+            "created": "2019-06-28T17:52:07.296Z",
+            "modified": "2023-04-12T22:55:21.274Z",
+            "name": "Server Software Component: Web Shell",
+            "description": "Adversaries may backdoor web servers with web shells to establish persistent access to systems. A Web Shell is a Web Script that is placed on an openly accessible Web server to allow an adversary to use the Web server as a gateway into a network.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "persistence"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1505/003",
+                    "external_id": "T1505.003"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "Windows", "macOS", "Network"],
+            "x_mitre_data_sources": ["File: File Creation", "Network Traffic: Network Traffic Content", "Process: Process Creation", "Application Log: Application Log Content"],
+            "x_mitre_is_subtechnique": true,
+            "x_mitre_version": "1.4",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--b80d107d-fa0d-4b60-9684-b0433e8bdba0",
+            "created": "2017-05-31T21:31:26.966Z",
+            "modified": "2023-03-30T21:01:50.568Z",
+            "name": "Data Encrypted for Impact",
+            "description": "Adversaries may encrypt data on target systems or on large numbers of systems in a network to interrupt availability to system and network resources. They can attempt to render stored data inaccessible by encrypting files or data on local and remote drives and withholding access to a decryption key.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "impact"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1486",
+                    "external_id": "T1486"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS", "Windows", "IaaS"],
+            "x_mitre_data_sources": ["Cloud Storage: Cloud Storage Modification", "File: File Creation", "File: File Modification", "Command: Command Execution", "Process: Process Creation"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "1.4",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--92d7da27-2d91-488e-a00c-059dc162766d",
+            "created": "2017-05-31T21:31:17.915Z",
+            "modified": "2023-03-30T21:01:36.433Z",
+            "name": "Exfiltration Over C2 Channel",
+            "description": "Adversaries may steal data by exfiltrating it over an existing command and control channel. Stolen data is encoded into the normal communications channel using the same protocol as command and control communications.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "exfiltration"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1041",
+                    "external_id": "T1041"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS", "Windows"],
+            "x_mitre_data_sources": ["Network Traffic: Network Traffic Flow", "Network Traffic: Network Traffic Content", "Command: Command Execution", "File: File Access"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.0",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--1c338d0f-a65e-4c88-ba29-17e21004dc86",
+            "created": "2017-05-31T21:30:41.399Z",
+            "modified": "2023-03-30T21:01:37.568Z",
+            "name": "Application Layer Protocol: DNS",
+            "description": "Adversaries may communicate using the Domain Name System (DNS) application layer protocol to avoid detection/network filtering by blending in with existing traffic. Commands to the remote system, and often the results of those commands, will be embedded within the protocol traffic between the client and server.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "command-and-control"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1071/004",
+                    "external_id": "T1071.004"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS", "Windows", "Network"],
+            "x_mitre_data_sources": ["Network Traffic: Network Traffic Content", "Network Traffic: Network Traffic Flow"],
+            "x_mitre_is_subtechnique": true,
+            "x_mitre_version": "1.2",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--3f886f2a-874f-4333-b794-aa6075009b1c",
+            "created": "2017-05-31T21:31:22.544Z",
+            "modified": "2023-04-14T23:30:41.274Z",
+            "name": "Supply Chain Compromise",
+            "description": "Adversaries may manipulate products or product delivery mechanisms prior to receipt by a final consumer for the purpose of data or system compromise. Supply chain compromise can take place at any stage of the supply chain including manipulation of development tools, manipulation of a development environment, manipulation of source code repositories, manipulation of software update/distribution mechanisms.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "initial-access"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1195",
+                    "external_id": "T1195"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS", "Windows"],
+            "x_mitre_data_sources": ["File: File Metadata"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "1.5",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--e6919abc-99f9-4c6c-95a5-14761e7b2add",
+            "created": "2017-05-31T21:30:29.858Z",
+            "modified": "2023-03-30T21:01:34.872Z",
+            "name": "Windows Management Instrumentation",
+            "description": "Adversaries may abuse Windows Management Instrumentation (WMI) to execute malicious commands and payloads. WMI is designed for programmers and is the infrastructure for management data and operations on Windows systems.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1047",
+                    "external_id": "T1047"
+                }
+            ],
+            "x_mitre_platforms": ["Windows"],
+            "x_mitre_data_sources": ["Process: Process Creation", "Network Traffic: Network Connection Creation", "Command: Command Execution"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "1.4",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--ff25900d-76d5-449b-a351-8824e62fc81b",
+            "created": "2017-05-31T21:31:15.060Z",
+            "modified": "2023-08-11T18:29:41.274Z",
+            "name": "Scheduled Task/Job",
+            "description": "Adversaries may abuse task scheduling functionality to facilitate initial or recurring execution of malicious code. Utilities exist within all major operating systems to schedule programs or scripts to be executed at a specified date and time.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"},
+                {"kill_chain_name": "mitre-attack", "phase_name": "persistence"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1053",
+                    "external_id": "T1053"
+                }
+            ],
+            "x_mitre_platforms": ["Windows", "Linux", "macOS", "Containers"],
+            "x_mitre_data_sources": ["Scheduled Job: Scheduled Job Creation", "Process: Process Creation", "Command: Command Execution", "File: File Creation"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.2",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--a93494bb-4b80-4ea1-8695-3236a49916fd",
+            "created": "2017-12-14T16:46:06.044Z",
+            "modified": "2023-04-12T23:55:39.274Z",
+            "name": "Brute Force",
+            "description": "Adversaries may use brute force techniques to gain access to accounts when passwords are unknown or when password hashes are obtained. Without knowledge of the password for an account or set of accounts, an adversary may systematically guess the password using a repetitive or iterative mechanism.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1110",
+                    "external_id": "T1110"
+                }
+            ],
+            "x_mitre_platforms": ["Windows", "Azure AD", "Office 365", "SaaS", "IaaS", "Linux", "macOS", "Google Workspace", "Containers", "Network"],
+            "x_mitre_data_sources": ["User Account: User Account Authentication", "Application Log: Application Log Content"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.5",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--7385dfaf-6886-4229-9ecd-6fd678c747ce",
+            "created": "2020-01-23T18:02:30.682Z",
+            "modified": "2023-04-15T16:12:41.274Z",
+            "name": "Command and Scripting Interpreter",
+            "description": "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries. These interfaces and languages provide ways of interacting with computer systems and are a common feature across many platforms.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "url": "https://attack.mitre.org/techniques/T1059",
+                    "external_id": "T1059"
+                }
+            ],
+            "x_mitre_platforms": ["Linux", "macOS", "Windows", "Network"],
+            "x_mitre_data_sources": ["Process: Process Creation", "Command: Command Execution", "Module: Module Load", "Script: Script Execution"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "2.4",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--revoked-technique-001",
+            "created": "2017-05-31T21:31:22.544Z",
+            "modified": "2023-01-01T00:00:00.000Z",
+            "name": "Revoked Technique Example",
+            "description": "This technique has been revoked.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "T9999"
+                }
+            ],
+            "revoked": true,
+            "x_mitre_platforms": ["Windows"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "1.0",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "attack-pattern",
+            "id": "attack-pattern--deprecated-technique-001",
+            "created": "2017-05-31T21:31:22.544Z",
+            "modified": "2023-01-01T00:00:00.000Z",
+            "name": "Deprecated Technique Example",
+            "description": "This technique has been deprecated.",
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": "execution"}
+            ],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "T9998"
+                }
+            ],
+            "x_mitre_deprecated": true,
+            "x_mitre_platforms": ["Windows"],
+            "x_mitre_is_subtechnique": false,
+            "x_mitre_version": "1.0",
+            "x_mitre_domains": ["enterprise-attack"]
+        },
+        {
+            "type": "relationship",
+            "id": "relationship--10d51417-sub-of-54a649ff",
+            "created": "2020-02-11T18:39:59.959Z",
+            "modified": "2023-04-07T17:04:17.876Z",
+            "relationship_type": "subtechnique-of",
+            "source_ref": "attack-pattern--10d51417-ee35-4589-b1ff-b6df1c334deb",
+            "target_ref": "attack-pattern--54a649ff-439a-41a4-9856-8d144a2551ba"
+        },
+        {
+            "type": "relationship",
+            "id": "relationship--d456de47-sub-of-1505",
+            "created": "2019-06-28T17:52:07.296Z",
+            "modified": "2023-04-12T22:55:21.274Z",
+            "relationship_type": "subtechnique-of",
+            "source_ref": "attack-pattern--d456de47-a16f-4e46-8980-e67478a12dcb",
+            "target_ref": "attack-pattern--placeholder-t1505-parent"
+        },
+        {
+            "type": "course-of-action",
+            "id": "course-of-action--93e7968a-9074-4eac-8ae9-9f5200ec3317",
+            "created": "2019-06-11T17:14:35.170Z",
+            "modified": "2023-04-12T23:55:39.274Z",
+            "name": "Multi-factor Authentication",
+            "description": "Use multi-factor authentication for user and privileged accounts. Do not manage Cloud Portals from combinded or default accounts.",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "M1032",
+                    "url": "https://attack.mitre.org/mitigations/M1032"
+                }
+            ]
+        },
+        {
+            "type": "course-of-action",
+            "id": "course-of-action--2c2ad92a-d710-41ab-a996-1db143bb4808",
+            "created": "2019-06-11T17:06:40.643Z",
+            "modified": "2023-03-30T14:09:56.274Z",
+            "name": "Password Policies",
+            "description": "Set and enforce secure password policies for accounts.",
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "M1027",
+                    "url": "https://attack.mitre.org/mitigations/M1027"
+                }
+            ]
+        },
+        {
+            "type": "intrusion-set",
+            "id": "intrusion-set--2e290bfe-93b5-48ce-97d6-edcd6d32b7cf",
+            "created": "2017-05-31T21:31:57.307Z",
+            "modified": "2023-03-22T05:10:43.274Z",
+            "name": "APT28",
+            "description": "APT28 is a threat group that has been attributed to Russia's General Staff Main Intelligence Directorate (GRU) 85th Main Special Service Center (GTsSS) military unit 26165.",
+            "aliases": ["APT28", "Fancy Bear", "STRONTIUM", "Sofacy", "Sednit"],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "G0007",
+                    "url": "https://attack.mitre.org/groups/G0007"
+                }
+            ]
+        },
+        {
+            "type": "intrusion-set",
+            "id": "intrusion-set--4e78f46f-a023-4e5f-bc24-71b3ca22ec29",
+            "created": "2017-05-31T21:31:49.412Z",
+            "modified": "2023-03-08T22:05:56.274Z",
+            "name": "APT29",
+            "description": "APT29 is threat group that has been attributed to Russia's Foreign Intelligence Service (SVR). They have operated since at least 2008, often targeting government networks in Europe and NATO member countries.",
+            "aliases": ["APT29", "NOBELIUM", "The Dukes", "Cozy Bear", "CozyDuke"],
+            "external_references": [
+                {
+                    "source_name": "mitre-attack",
+                    "external_id": "G0016",
+                    "url": "https://attack.mitre.org/groups/G0016"
+                }
+            ]
+        },
+        {
+            "type": "relationship",
+            "id": "relationship--mitigates-valid-accounts",
+            "created": "2019-06-11T17:14:35.170Z",
+            "modified": "2023-04-12T23:55:39.274Z",
+            "relationship_type": "mitigates",
+            "source_ref": "course-of-action--93e7968a-9074-4eac-8ae9-9f5200ec3317",
+            "target_ref": "attack-pattern--b17a1a56-e99c-403c-8948-561df0cffe81"
+        },
+        {
+            "type": "relationship",
+            "id": "relationship--apt28-uses-valid-accounts",
+            "created": "2017-05-31T21:33:27.000Z",
+            "modified": "2023-03-22T05:10:43.274Z",
+            "relationship_type": "uses",
+            "source_ref": "intrusion-set--2e290bfe-93b5-48ce-97d6-edcd6d32b7cf",
+            "target_ref": "attack-pattern--b17a1a56-e99c-403c-8948-561df0cffe81"
+        }
+    ]
+}

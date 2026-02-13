@@ -1,0 +1,166 @@
+{
+  "description": "Gold-standard RAG evaluation queries for CyberSentinel demo corpus.",
+  "version": "1.0.0",
+  "queries": [
+    {
+      "id": "q01",
+      "query": "SSH lateral movement technique",
+      "expected_doc_ids": ["attack_T1021.004"],
+      "expected_fields": {"attack_id": "T1021.004"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q02",
+      "query": "credential dumping LSASS memory",
+      "expected_doc_ids": ["attack_T1003"],
+      "expected_fields": {"attack_id": "T1003"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q03",
+      "query": "valid accounts abuse initial access",
+      "expected_doc_ids": ["attack_T1078"],
+      "expected_fields": {"attack_id": "T1078"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q04",
+      "query": "WMI remote execution Windows",
+      "expected_doc_ids": ["attack_T1047"],
+      "expected_fields": {"attack_id": "T1047"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q05",
+      "query": "web shell persistence server",
+      "expected_doc_ids": ["attack_T1505.003"],
+      "expected_fields": {"attack_id": "T1505.003"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q06",
+      "query": "ransomware data encryption impact",
+      "expected_doc_ids": ["attack_T1486"],
+      "expected_fields": {"attack_id": "T1486"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q07",
+      "query": "DNS tunneling command and control",
+      "expected_doc_ids": ["attack_T1071.004"],
+      "expected_fields": {"attack_id": "T1071.004"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q08",
+      "query": "supply chain compromise software",
+      "expected_doc_ids": ["attack_T1195"],
+      "expected_fields": {"attack_id": "T1195"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q09",
+      "query": "exploit public facing application vulnerability",
+      "expected_doc_ids": ["attack_T1190"],
+      "expected_fields": {"attack_id": "T1190"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q10",
+      "query": "exfiltration over command and control channel",
+      "expected_doc_ids": ["attack_T1041"],
+      "expected_fields": {"attack_id": "T1041"},
+      "category": "attack_technique",
+      "k": 5
+    },
+    {
+      "id": "q11",
+      "query": "Log4Shell JNDI injection vulnerability",
+      "expected_doc_ids": ["cve_CVE-2021-44228"],
+      "expected_fields": {"cve_id": "CVE-2021-44228"},
+      "category": "cve",
+      "k": 5
+    },
+    {
+      "id": "q12",
+      "query": "PrintNightmare Windows print spooler",
+      "expected_doc_ids": ["cve_CVE-2021-34527"],
+      "expected_fields": {"cve_id": "CVE-2021-34527"},
+      "category": "cve",
+      "k": 5
+    },
+    {
+      "id": "q13",
+      "query": "Spring4Shell Spring Framework RCE",
+      "expected_doc_ids": ["cve_CVE-2022-22965"],
+      "expected_fields": {"cve_id": "CVE-2022-22965"},
+      "category": "cve",
+      "k": 5
+    },
+    {
+      "id": "q14",
+      "query": "detect SSH brute force multiple failed login",
+      "expected_doc_ids": ["sigma_ssh_brute_force"],
+      "expected_fields": {"rule_id": "ssh_brute_force"},
+      "category": "sigma_rule",
+      "k": 5
+    },
+    {
+      "id": "q15",
+      "query": "web shell upload detection HTTP POST",
+      "expected_doc_ids": ["sigma_web_shell_upload"],
+      "expected_fields": {"rule_id": "web_shell_upload"},
+      "category": "sigma_rule",
+      "k": 5
+    },
+    {
+      "id": "q16",
+      "query": "Mimikatz credential theft detection",
+      "expected_doc_ids": ["sigma_mimikatz_execution"],
+      "expected_fields": {"rule_id": "mimikatz_execution"},
+      "category": "sigma_rule",
+      "k": 5
+    },
+    {
+      "id": "q17",
+      "query": "DNS tunneling detection unusual query length",
+      "expected_doc_ids": ["sigma_dns_tunneling"],
+      "expected_fields": {"rule_id": "dns_tunneling"},
+      "category": "sigma_rule",
+      "k": 5
+    },
+    {
+      "id": "q18",
+      "query": "CISA known exploited vulnerability Log4j",
+      "expected_doc_ids": ["kev_CVE-2021-44228"],
+      "expected_fields": {"cve_id": "CVE-2021-44228"},
+      "category": "cisa_kev",
+      "k": 5
+    },
+    {
+      "id": "q19",
+      "query": "MSHTML remote code execution ActiveX",
+      "expected_doc_ids": ["cve_CVE-2021-40444"],
+      "expected_fields": {"cve_id": "CVE-2021-40444"},
+      "category": "cve",
+      "k": 5
+    },
+    {
+      "id": "q20",
+      "query": "Confluence OGNL injection Atlassian server",
+      "expected_doc_ids": ["cve_CVE-2022-26134"],
+      "expected_fields": {"cve_id": "CVE-2022-26134"},
+      "category": "cve",
+      "k": 5
+    }
+  ]
+}

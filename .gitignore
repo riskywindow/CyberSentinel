@@ -186,3 +186,5 @@ eval/temp/
 # Red team training data
 agents/red/models/
 agents/red/checkpoints/
+
+disney_interview_briefing_cybersentinel.md

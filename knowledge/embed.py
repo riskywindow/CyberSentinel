@@ -3,6 +3,7 @@
 import logging
 import hashlib
 import json
+import os
 from typing import List, Dict, Any, Optional, Union
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict
@@ -353,18 +354,85 @@ class EmbeddingEngine:
             "cache_enabled": self.cache_dir is not None
         }
 
-def create_embedding_engine(provider_type: str = "mock", **kwargs) -> EmbeddingEngine:
-    """Factory function to create embedding engine with different providers."""
-    
+def resolve_embedding_provider() -> str:
+    """Resolve embedding provider from environment.
+
+    Resolution order:
+      1. ``EMBEDDINGS_PROVIDER`` env var – explicit override (``openai``,
+         ``sentence_transformers``, or ``mock``).
+      2. If ``OPENAI_API_KEY`` is set and non-empty – ``openai``.
+      3. If ``sentence-transformers`` package is installed – ``sentence_transformers``.
+      4. Fall back to ``mock`` with a warning.
+
+    Returns the provider name string suitable for :func:`create_embedding_engine`.
+    """
+    explicit = os.environ.get("EMBEDDINGS_PROVIDER", "").strip().lower()
+    if explicit:
+        if explicit in ("openai", "sentence_transformers", "mock"):
+            logger.info(f"Embedding provider set by EMBEDDINGS_PROVIDER={explicit}")
+            return explicit
+        raise ValueError(
+            f"Unknown EMBEDDINGS_PROVIDER='{explicit}'. "
+            "Valid values: openai, sentence_transformers, mock"
+        )
+
+    if os.environ.get("OPENAI_API_KEY", "").strip():
+        logger.info("Embedding provider: openai (OPENAI_API_KEY detected)")
+        return "openai"
+
+    if SentenceTransformer is not None:
+        logger.info("Embedding provider: sentence_transformers (package available)")
+        return "sentence_transformers"
+
+    logger.warning(
+        "No real embedding provider available – falling back to mock. "
+        "Install sentence-transformers or set OPENAI_API_KEY for real embeddings."
+    )
+    return "mock"
+
+
+# Dimension lookup for provider auto-config
+PROVIDER_DIMENSIONS: Dict[str, int] = {
+    "openai": 1536,
+    "sentence_transformers": 384,
+    "mock": 768,
+}
+
+
+def create_embedding_engine(provider_type: Optional[str] = None, **kwargs) -> EmbeddingEngine:
+    """Factory function to create embedding engine with different providers.
+
+    If *provider_type* is ``None`` the provider is resolved automatically via
+    :func:`resolve_embedding_provider` (env-var driven).
+    """
+    if provider_type is None:
+        provider_type = resolve_embedding_provider()
+
     cache_dir = kwargs.pop("cache_dir", "knowledge/corpora/cache/embeddings")
-    
+
+    # Auto-set dimension if not given and provider is known
+    if "dimension" not in kwargs and provider_type in PROVIDER_DIMENSIONS:
+        kwargs["dimension"] = PROVIDER_DIMENSIONS[provider_type]
+
     if provider_type == "openai":
-        provider = OpenAIEmbeddings(**kwargs)
+        # Only pass kwargs that OpenAIEmbeddings accepts
+        openai_kwargs = {}
+        if "api_key" in kwargs:
+            openai_kwargs["api_key"] = kwargs["api_key"]
+        if "model" in kwargs:
+            openai_kwargs["model"] = kwargs["model"]
+        provider = OpenAIEmbeddings(**openai_kwargs)
     elif provider_type == "sentence_transformers":
-        provider = SentenceTransformerEmbeddings(**kwargs)
+        st_kwargs = {}
+        if "model_name" in kwargs:
+            st_kwargs["model_name"] = kwargs["model_name"]
+        provider = SentenceTransformerEmbeddings(**st_kwargs)
     elif provider_type == "mock":
-        provider = MockEmbeddings(**kwargs)
+        mock_kwargs = {}
+        if "dimension" in kwargs:
+            mock_kwargs["dimension"] = kwargs["dimension"]
+        provider = MockEmbeddings(**mock_kwargs)
     else:
         raise ValueError(f"Unknown provider type: {provider_type}")
-    
+
     return EmbeddingEngine(provider, cache_dir)

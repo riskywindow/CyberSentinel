@@ -7,7 +7,7 @@ NEO4J_PASSWORD ?= test-password
 
 DOCKER_COMPOSE := $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose || echo docker compose)
 
-.PHONY: help dev seed replay eval test clean proto install-deps wait-neo4j
+.PHONY: help dev seed replay eval test clean proto install-deps wait-neo4j rag-index rag-eval test-rag-quality vector-parity-test test-tenancy stream-smoke stream-load test-jetstream
 
 # Default target
 help: ## Show this help message
@@ -40,8 +40,16 @@ dev: ## Bring up development environment (ClickHouse, Neo4j, API services, UI)
 	@echo "Neo4j Browser: http://localhost:7474"
 	@echo "NATS: nats://localhost:4222"
 
-seed: ## Load ATT&CK/CVE demo slices + example logs
-	@echo "Seeding demo prerequisites..."
+seed: ## Load full ATT&CK + CVE/Sigma demo slices (OFFLINE=1 for fixture-only)
+	@echo "Seeding knowledge corpus…"
+ifdef OFFLINE
+	PYTHONPATH=. python -m knowledge.corpora.attack_stix \
+		--offline tests/fixtures/attack_stix/enterprise_attack_bundle.json \
+		--force --cache-dir knowledge/corpora/cache
+else
+	PYTHONPATH=. python -m knowledge.corpora.attack_stix --force --cache-dir knowledge/corpora/cache
+endif
+	@echo "Seed complete."
 
 replay: ## Run replay harness on sample scenarios
 	@echo "Running log replay scenarios..."
@@ -195,3 +203,70 @@ rl-smoke-ppo: ## Run PPO smoke test (200 episodes)
 
 test-rl: ## Run RL unit tests
 	python -m pytest tests/rl/ -v
+
+test-attack-ingest: ## Run ATT&CK STIX ingest tests (offline, no network)
+	PYTHONPATH=. python -m pytest tests/test_attack_ingest.py -v
+
+# ---------------------------------------------------------------------------
+# RAG quality targets
+# ---------------------------------------------------------------------------
+
+rag-index: ## Incremental RAG index build (uses env-resolved embeddings)
+	@echo "Building RAG index (incremental)..."
+	PYTHONPATH=. python -c "\
+from knowledge.rag_index import RAGIndexManager; \
+mgr = RAGIndexManager(); \
+mgr.load_existing_index(); \
+docs = mgr.corpus.load_all_demo_slices(); \
+stats = mgr.builder.update_documents(docs); \
+print('Index stats:', stats)"
+	@echo "RAG index build complete."
+
+rag-eval: ## Run RAG evaluation, emit eval/rag/report.json (CI gate)
+	@echo "Running RAG evaluation..."
+	PYTHONPATH=. python eval/rag/eval_rag.py \
+		--embedding-provider $${EMBEDDINGS_PROVIDER:-mock} \
+		--reranker $${RERANKER:-mock}
+	@echo "RAG evaluation complete. See eval/rag/report.json"
+
+test-rag-quality: ## Run RAG quality unit + eval tests
+	PYTHONPATH=. python -m pytest tests/test_rag_quality.py -v
+
+vector-parity-test: ## Run vector store unit + parity tests (FAISS vs Pinecone)
+	PYTHONPATH=. python -m pytest tests/test_vector_stores.py -v
+
+# ---------------------------------------------------------------------------
+# API targets
+# ---------------------------------------------------------------------------
+
+api-dev: ## Start API dev server with hot-reload
+	PYTHONPATH=. uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+api-test: ## Run API unit tests
+	PYTHONPATH=. python -m pytest tests/api/ -v
+
+# ---------------------------------------------------------------------------
+# Multi-tenancy & query safety
+# ---------------------------------------------------------------------------
+
+test-tenancy: ## Run multi-tenancy isolation and query safety tests
+	PYTHONPATH=. python -m pytest tests/test_tenancy.py -v
+
+# ---------------------------------------------------------------------------
+# JetStream / streaming targets
+# ---------------------------------------------------------------------------
+
+RATE ?= 500
+COUNT ?= 1000
+
+test-jetstream: ## Run JetStream unit tests
+	PYTHONPATH=. python -m pytest tests/test_jetstream.py -v
+
+stream-smoke: ## Smoke test: publish+consume 100 msgs via JetStream (needs NATS)
+	PYTHONPATH=. python -m pytest integration_tests/test_jetstream_integration.py -v
+	PYTHONPATH=. python tools/stream_load.py --count 100 --rate 200 --output eval/reports/stream_smoke.json
+	@echo "Smoke test passed. Report: eval/reports/stream_smoke.json"
+
+stream-load: ## Load test JetStream (RATE=msg/s COUNT=total) e.g. make stream-load RATE=2000 COUNT=5000
+	PYTHONPATH=. python tools/stream_load.py --count $(COUNT) --rate $(RATE) --output eval/reports/stream_load.json
+	@echo "Load test complete. Report: eval/reports/stream_load.json"

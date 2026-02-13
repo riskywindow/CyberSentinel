@@ -165,11 +165,30 @@ Data Sources:
         logger.info(f"Loaded {len(documents)} demo ATT&CK techniques")
         return documents
     
-    def load_full_enterprise(self) -> List[KnowledgeDocument]:
-        """Load full ATT&CK Enterprise matrix (placeholder - would fetch from MITRE)."""
-        # For now, return demo slice
-        logger.warning("Full ATT&CK loading not implemented - using demo slice")
-        return self.load_demo_slice()
+    def load_full_enterprise(
+        self,
+        *,
+        offline_bundle_path: Optional[Path] = None,
+        force: bool = False,
+    ) -> List[KnowledgeDocument]:
+        """Load full ATT&CK Enterprise matrix via STIX/TAXII.
+
+        Args:
+            offline_bundle_path: Path to a local STIX bundle JSON for offline mode.
+            force: If True, skip incremental diff and treat all docs as new.
+        """
+        from knowledge.corpora.attack_stix import ATTACKIngestPipeline
+
+        pipeline = ATTACKIngestPipeline(
+            cache_dir=self.cache_dir,
+            offline_bundle_path=offline_bundle_path,
+        )
+        docs, stats = pipeline.run(force=force)
+        logger.info(
+            f"Loaded {stats['techniques_parsed']} ATT&CK techniques via STIX/TAXII "
+            f"({stats['docs_to_upsert']} to upsert, {stats['docs_unchanged']} unchanged)"
+        )
+        return docs
 
 class CVELoader:
     """Loader for CVE/NVD vulnerability data."""
@@ -533,53 +552,69 @@ Notes:
 
 class KnowledgeCorpus:
     """Main interface for loading all knowledge sources."""
-    
+
     def __init__(self, cache_dir: Path = None):
         self.cache_dir = cache_dir or Path("knowledge/corpora/cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.attack_loader = ATTACKLoader(cache_dir)
         self.cve_loader = CVELoader(cache_dir)
         self.sigma_loader = SigmaLoader(cache_dir)
         self.kev_loader = CISAKEVLoader(cache_dir)
-    
-    def load_all_demo_slices(self) -> List[KnowledgeDocument]:
-        """Load all demo slices for testing and development."""
-        
-        logger.info("Loading all demo knowledge slices...")
-        
-        all_docs = []
-        
-        # Load ATT&CK techniques
-        all_docs.extend(self.attack_loader.load_demo_slice())
-        
-        # Load CVE data
+
+    def load_all(
+        self,
+        *,
+        full_attack: bool = False,
+        offline_bundle_path: Optional[Path] = None,
+    ) -> List[KnowledgeDocument]:
+        """Load all knowledge sources.
+
+        Args:
+            full_attack: If True, load full ATT&CK via STIX/TAXII instead of demo slice.
+            offline_bundle_path: Path to local STIX bundle for offline full_attack mode.
+        """
+        logger.info("Loading knowledge corpus (full_attack=%s)…", full_attack)
+        all_docs: List[KnowledgeDocument] = []
+
+        if full_attack:
+            all_docs.extend(self.attack_loader.load_full_enterprise(
+                offline_bundle_path=offline_bundle_path
+            ))
+        else:
+            all_docs.extend(self.attack_loader.load_demo_slice())
+
         all_docs.extend(self.cve_loader.load_demo_slice())
-        
-        # Load Sigma rules
         all_docs.extend(self.sigma_loader.load_demo_slice())
-        
-        # Load CISA KEV
         all_docs.extend(self.kev_loader.load_demo_slice())
-        
+
         logger.info(f"Loaded total of {len(all_docs)} knowledge documents")
-        
-        # Log distribution by type
-        doc_types = {}
+        doc_types: Dict[str, int] = {}
         for doc in all_docs:
             doc_types[doc.doc_type] = doc_types.get(doc.doc_type, 0) + 1
-        
         logger.info("Document distribution:")
         for doc_type, count in doc_types.items():
             logger.info(f"  {doc_type}: {count}")
-        
         return all_docs
-    
-    def load_specific_source(self, source: str) -> List[KnowledgeDocument]:
+
+    def load_all_demo_slices(self) -> List[KnowledgeDocument]:
+        """Load all demo slices for testing and development."""
+        return self.load_all(full_attack=False)
+
+    def load_specific_source(
+        self,
+        source: str,
+        *,
+        offline_bundle_path: Optional[Path] = None,
+    ) -> List[KnowledgeDocument]:
         """Load documents from a specific source."""
-        
+
         if source == "attack":
             return self.attack_loader.load_demo_slice()
+        elif source == "attack_full":
+            return self.attack_loader.load_full_enterprise(
+                offline_bundle_path=offline_bundle_path
+            )
         elif source == "cve":
             return self.cve_loader.load_demo_slice()
         elif source == "sigma":
@@ -588,31 +623,31 @@ class KnowledgeCorpus:
             return self.kev_loader.load_demo_slice()
         else:
             raise ValueError(f"Unknown source: {source}")
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about the knowledge corpus."""
-        
+
         all_docs = self.load_all_demo_slices()
-        
+
         stats = {
             "total_documents": len(all_docs),
             "by_type": {},
             "by_source": {},
             "avg_content_length": 0
         }
-        
+
         total_length = 0
         for doc in all_docs:
             # Count by type
             stats["by_type"][doc.doc_type] = stats["by_type"].get(doc.doc_type, 0) + 1
-            
+
             # Count by source
             stats["by_source"][doc.source] = stats["by_source"].get(doc.source, 0) + 1
-            
+
             # Track content length
             total_length += len(doc.content)
-        
+
         if len(all_docs) > 0:
             stats["avg_content_length"] = total_length / len(all_docs)
-        
+
         return stats

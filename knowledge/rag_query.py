@@ -5,8 +5,9 @@ from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 from collections import defaultdict
 
-from storage.vector.faiss_store import FAISSStore
+from storage.vector.base import VectorStore
 from knowledge.embed import EmbeddingEngine
+from knowledge.rerank import Reranker, NoneReranker, create_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -37,44 +38,64 @@ class QueryContext:
             self.filters = {}
 
 class RAGQueryEngine:
-    """Engine for querying the RAG knowledge base."""
-    
-    def __init__(self, vector_store: FAISSStore, embedding_engine: EmbeddingEngine):
+    """Engine for querying the RAG knowledge base.
+
+    When a :class:`~knowledge.rerank.Reranker` is provided the retrieval flow
+    becomes:  FAISS top ``retrieve_k`` -> rerank -> top ``k``.
+    """
+
+    # How many candidates to pull from FAISS before reranking.
+    DEFAULT_RETRIEVE_K = 50
+
+    def __init__(self, vector_store: VectorStore, embedding_engine: EmbeddingEngine,
+                 reranker: Optional[Reranker] = None):
         self.vector_store = vector_store
         self.embedding_engine = embedding_engine
-    
+        self.reranker = reranker or NoneReranker()
+
     def query(self, context: QueryContext) -> List[RAGResult]:
         """Execute a RAG query and return ranked results."""
-        
+
         logger.debug(f"Executing RAG query: '{context.query}' with filters: {context.filters}")
-        
+
         # Generate query embedding
         query_embedding = self.embedding_engine.embed_query(context.query)
-        
+
+        # Determine how many candidates to fetch from FAISS
+        retrieve_k = max(self.DEFAULT_RETRIEVE_K, context.k * 2)
+        retrieve_k = min(retrieve_k, context.max_results)
+
         # Search vector store
         raw_results = self.vector_store.query(
             query_embedding=query_embedding,
-            k=min(context.k * 2, context.max_results),  # Get extra results for filtering
-            filters=context.filters
+            k=retrieve_k,
+            filters=context.filters,
         )
-        
+
+        # Filter by min_score (on FAISS scores)
+        raw_results = [r for r in raw_results if r["score"] >= context.min_score]
+
+        # Rerank
+        reranked = self.reranker.rerank(
+            query=context.query,
+            results=raw_results,
+            top_k=context.k,
+        )
+
         # Convert to RAGResult objects
         results = []
-        for item in raw_results:
-            if item['score'] >= context.min_score:
-                result = RAGResult(
-                    content=item.get('content', ''),
-                    score=item['score'],
-                    source=item.get('source', 'unknown'),
-                    doc_type=item.get('doc_type', 'unknown'),
-                    metadata={k: v for k, v in item.items() if k not in ['content', 'score', 'source', 'doc_type']}
-                )
-                results.append(result)
-        
-        # Limit to requested number
-        results = results[:context.k]
-        
-        logger.debug(f"RAG query returned {len(results)} results")
+        for item in reranked:
+            result = RAGResult(
+                content=item.get('content', ''),
+                score=item['score'],
+                source=item.get('source', 'unknown'),
+                doc_type=item.get('doc_type', 'unknown'),
+                metadata={k: v for k, v in item.items()
+                          if k not in ['content', 'score', 'source', 'doc_type']}
+            )
+            results.append(result)
+
+        logger.debug(f"RAG query returned {len(results)} results (reranker={self.reranker.name})")
         return results
     
     def query_by_attack_technique(self, technique_id: str, k: int = 5) -> List[RAGResult]:
